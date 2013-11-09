@@ -102,7 +102,10 @@ impl Connection {
 
                 // Chat Message
                 } else if packet_id == 0x2 {
-                    let json = json::from_str(r.read_string()).unwrap();
+                    let json = r.read_string();
+                    debug!("Got chat message: {}", json);
+
+                    let json = json::from_str(json).unwrap();
                     util::maybe_print_message(json);
                 }
             }

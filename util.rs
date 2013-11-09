@@ -84,7 +84,28 @@ pub fn maybe_print_message(j: json::Json) {
 
                         println!("<{}> {}", user, msg);
                     }
-                    _ => return
+                    _ => {}
+                }
+            } else if "chat.type.announcement" == t {
+                match o.find(&~"with") {
+                    Some(&json::List(ref l)) => {
+                        match l[1] {
+                            json::Object(ref v) => {
+                                match v.find(&~"extra") {
+                                    Some(&json::List(ref l)) => {
+                                        let msg = match l[0] {
+                                            json::String(ref s) => s.clone(),
+                                            _ => return
+                                        };
+                                        println!("[Server] {}", msg);
+                                    }
+                                    _ => {}
+                                }
+                            }
+                            _ => {}
+                        }
+                    }
+                    _ => {}
                 }
             }
         }
