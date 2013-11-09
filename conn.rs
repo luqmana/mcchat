@@ -1,9 +1,15 @@
+use extra::json;
+
+use std::task;
+use std::rt::{comm, io};
 use std::rt::io::{io_error, Decorator, Reader, Writer};
+use std::rt::io::buffered::BufferedReader;
 use std::rt::io::mem::{MemReader, MemWriter};
 use std::rt::io::net::tcp::TcpStream;
 use std::rt::io::net::ip::SocketAddr;
 use std::vec;
 
+use util;
 use util::{ReaderExtensions, WriterExtensions};
 
 struct Connection {
@@ -57,11 +63,30 @@ impl Connection {
             debug!("Username: {}", username);
         }
 
+        println("Successfully connected to server.");
+
+        // Get a port to read messages from stdin
+        let msgs = self.read_messages();
+
         // Yay, all good.
         // Now we just loop and read in all the packets we can
         // We don't actually do anything for most of them except
         // for chat and keep alives.
         loop {
+            // Got a message in the queue to send?
+            if msgs.peek() {
+                while msgs.peek() {
+                    let msg = msgs.recv();
+                    do self.write_packet |_, w| {
+                        // Packet ID
+                        w.write_varint(0x1);
+
+                        // Message
+                        w.write_string(msg);
+                    }
+                }
+            }
+
             do self.read_packet |this, r| {
                 let packet_id = r.read_varint();
 
@@ -77,12 +102,28 @@ impl Connection {
 
                 // Chat Message
                 } else if packet_id == 0x2 {
-                    let json = r.read_string();
-
-                    debug!("Received chat message: {}", json);
+                    let json = json::from_str(r.read_string()).unwrap();
+                    util::maybe_print_message(json);
                 }
             }
         }
+    }
+
+    fn read_messages(&self) -> comm::Port<~str> {
+        let (port, chan) = comm::stream();
+
+        let mut rtask = task::task();
+        rtask.sched_mode(task::SingleThreaded);
+        do rtask.spawn_with(chan) |chan| {
+            println("Type message and then [ENTER] to send:");
+
+            let mut stdin = BufferedReader::new(io::stdin());
+            while !stdin.eof() {
+                chan.send(stdin.read_line().unwrap());
+            }
+        }
+
+        port
     }
 
     fn write_packet(&mut self, f: &fn(&mut Connection, &mut MemWriter)) {

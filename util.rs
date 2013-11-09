@@ -1,3 +1,5 @@
+use extra::json;
+
 use std::rt::io::{Reader, Writer};
 use std::{str, vec};
 
@@ -53,3 +55,39 @@ pub trait ReaderExtensions: Reader {
 }
 
 impl<T: Reader> ReaderExtensions for T {}
+
+pub fn maybe_print_message(j: json::Json) {
+    match j {
+        json::Object(~o) => {
+            let t = match o.find(&~"translate") {
+                Some(&json::String(ref s)) => s.clone(),
+                _ => return
+            };
+
+            if "chat.type.text" == t {
+                match o.find(&~"with") {
+                    Some(&json::List(ref l)) => {
+                        let user = match l[0] {
+                            json::Object(ref v) => {
+                                match v.find(&~"text") {
+                                    Some(&json::String(ref s)) => s.clone(),
+                                    _ => return
+                                }
+                            }
+                            _ => return
+                        };
+
+                        let msg = match l[1] {
+                            json::String(ref s) => s.clone(),
+                            _ => return
+                        };
+
+                        println!("<{}> {}", user, msg);
+                    }
+                    _ => return
+                }
+            }
+        }
+        _ => {}
+    }
+}
