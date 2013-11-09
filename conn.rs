@@ -77,6 +77,12 @@ impl Connection {
             if msgs.peek() {
                 while msgs.peek() {
                     let msg = msgs.recv();
+                    if msg.trim().is_empty() {
+                        continue;
+                    } else if msg.len() > 300 {
+                        println!("Message too long.");
+                        continue;
+                    }
                     do self.write_packet |_, w| {
                         // Packet ID
                         w.write_varint(0x1);
