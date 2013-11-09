@@ -1,10 +1,15 @@
-use std::rt::io::{io_error, Reader, Writer};
+use std::rt::io::{io_error, Decorator, Reader, Writer};
+use std::rt::io::mem::{MemReader, MemWriter};
 use std::rt::io::net::tcp::TcpStream;
 use std::rt::io::net::ip::SocketAddr;
+use std::vec;
+
+use util::{ReaderExtensions, WriterExtensions};
 
 struct Connection {
     addr: SocketAddr,
-    sock: TcpStream
+    sock: TcpStream,
+    name: ~str
 }
 
 impl Connection {
@@ -31,70 +36,116 @@ impl Connection {
 
         Ok(Connection {
             addr: addr,
-            sock: sock
+            sock: sock,
+            name: ~"IAmBot"
         })
     }
 
     pub fn run(mut self) {
 
-        self.write_uvarint(29);
         self.send_handshake();
+        self.send_username();
 
-        // Write username
-        // Packet length
-        self.sock.write_u8(6);
-        // Packet ID
-        self.sock.write_u8(0);
-        self.write_string("ABot");
+        do self.read_packet |_, r| {
+            // Server should responded with success packet
+            assert_eq!(r.read_u8(), 0x2);
 
-        let packet_id = self.sock.read_u8();
+            let uuid = r.read_string();
+            debug!("UUID: {}", uuid);
 
-        debug!("packet_id: {:X}", packet_id);
+            let username = r.read_string();
+            debug!("Username: {}", username);
+        }
 
-        // Server should respond to handshake properly
-        assert_eq!(packet_id, 0x2F);
+        // Yay, all good.
+        // Now we just loop and read in all the packets we can
+        // We don't actually do anything for most of them except
+        // for chat and keep alives.
+        loop {
+            do self.read_packet |this, r| {
+                let packet_id = r.read_varint();
 
+                // Keep Alive
+                if packet_id == 0x0 {
+                    let x = r.read_be_i32();
+
+                    // Need to respond
+                    do this.write_packet |_, w| {
+                        w.write_varint(0x0);
+                        w.write_be_i32(x);
+                    }
+
+                // Chat Message
+                } else if packet_id == 0x2 {
+                    let json = r.read_string();
+
+                    debug!("Received chat message: {}", json);
+                }
+            }
+        }
+    }
+
+    fn write_packet(&mut self, f: &fn(&mut Connection, &mut MemWriter)) {
+        // Create a buffer that we'll write to in memory
+        // that way we can determine the total packet length
+        let mut buf = MemWriter::new();
+
+        // Let the caller do what they need to
+        f(self, &mut buf);
+
+        // Now let's write it out to the network
+
+        // Get the actual buffer
+        let buf = buf.inner();
+
+        // Write out the packet length
+        self.sock.write_varint(buf.len() as i32);
+
+        // and the actual payload
+        self.sock.write(buf);
+    }
+
+    fn read_packet(&mut self, f: &fn(&mut Connection, &mut MemReader)) {
+        // Read the packet length
+        let len = self.sock.read_varint();
+
+        // Now the payload
+        let mut buf = vec::from_elem(len as uint, 0u8);
+        self.sock.read(buf);
+
+        let mut buf = MemReader::new(buf);
+
+        // Let the caller do their thing
+        f(self, &mut buf);
     }
 
     fn send_handshake(&mut self) {
-        // Packet ID
-        self.sock.write_u8(0x0);
+        do self.write_packet |this, w| {
+            // Packet ID
+            w.write_u8(0x0);
 
-        // Protocol Version
-        self.write_uvarint(4);
+            // Protocol Version
+            w.write_varint(4);
 
-        // Server host
-        let server = self.addr.ip.to_str();
-        self.write_string("corn-syrup.uwaterloo.ca");
-        //self.write_string(server);
+            // Server host
+            w.write_string(this.addr.ip.to_str());
 
-        // Server port
-        self.sock.write_be_u16(self.addr.port);
+            // Server port
+            w.write_be_u16(this.addr.port);
 
-        // Next state
-        // 1 - status
-        // 2 - login
-        self.write_uvarint(2);
-    }
-
-    fn write_uvarint(&mut self, mut x: u64) {
-        let mut buf = [0u8, ..10];
-        let mut i = 0;
-        while x >= 0x80 {
-            buf[i] = (x as u8) | 0x80;
-            x = x >> 7;
-            i = i + 1;
+            // State
+            // 1 - status, 2 - login
+            w.write_varint(2);
         }
-        buf[i] = x as u8;
-
-        debug!("writing uvarint {:?}", buf.slice(0, i + 1));
-        self.sock.write(buf.slice(0, i + 1));
     }
 
-    fn write_string(&mut self, s: &str) {
-        debug!("writing string - {}", s);
+    fn send_username(&mut self) {
+        do self.write_packet |this, w| {
+            // Packet ID
+            w.write_u8(0x0);
 
-        self.write_uvarint(s.len() as u64);
-        self.sock.write(s.as_bytes());
+            // User name
+            w.write_string(this.name);
+        }
     }
 }

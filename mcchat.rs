@@ -4,6 +4,7 @@ use extra::getopts::groups;
 use std::os;
 
 mod conn;
+mod util;
 
 static DEFAULT_IP: &'static str  = "127.0.0.1";
 static DEFAULT_PORT: u16         = 6660;
