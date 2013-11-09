@@ -19,7 +19,7 @@ struct Connection {
 }
 
 impl Connection {
-    pub fn new(ip: &str, port: u16) -> Result<Connection, ~str> {
+    pub fn new(name: ~str, ip: &str, port: u16) -> Result<Connection, ~str> {
         let addr: SocketAddr = match from_str(format!("{}:{}", ip, port)) {
             Some(a) => a,
             None => return Err(~"unable to parse given ip/port")
@@ -43,7 +43,7 @@ impl Connection {
         Ok(Connection {
             addr: addr,
             sock: sock,
-            name: ~"IAmBot"
+            name: name
         })
     }
 
