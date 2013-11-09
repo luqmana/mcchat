@@ -53,7 +53,7 @@ impl Connection {
         self.send_username();
 
         do self.read_packet |_, r| {
-            // Server should responded with success packet
+            // Server should've responded with success packet
             assert_eq!(r.read_u8(), 0x2);
 
             let uuid = r.read_string();
