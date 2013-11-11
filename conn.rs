@@ -47,9 +47,27 @@ impl Connection {
         })
     }
 
+    pub fn status(&mut self) {
+
+        self.send_handshake(false);
+
+        // Send the status request
+        do self.write_packet |_, w| {
+            w.write_varint(0x0);
+        }
+
+        // and read it back
+        do self.read_packet |_, r| {
+            assert_eq!(r.read_varint(), 0x0);
+
+            println(r.read_string());
+        }
+
+    }
+
     pub fn run(mut self) {
 
-        self.send_handshake();
+        self.send_handshake(true);
         self.send_username();
 
         do self.read_packet |_, r| {
@@ -167,7 +185,7 @@ impl Connection {
         f(self, &mut buf);
     }
 
-    fn send_handshake(&mut self) {
+    fn send_handshake(&mut self, login: bool) {
         do self.write_packet |this, w| {
             // Packet ID
             w.write_u8(0x0);
@@ -183,7 +201,7 @@ impl Connection {
 
             // State
             // 1 - status, 2 - login
-            w.write_varint(2);
+            w.write_varint(if login { 2 } else { 1 });
         }
     }
 

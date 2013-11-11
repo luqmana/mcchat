@@ -22,7 +22,8 @@ fn main() {
         groups::optflag("h", "help", "Display this message"),
         groups::optopt("s", "server", "Minecraft server ip address", "IP"),
         groups::optopt("p", "port", "Minecraft server port", "PORT"),
-        groups::optopt("n", "name", "Username to use.", "NAME")
+        groups::optopt("n", "name", "Username to use.", "NAME"),
+        groups::optflag("c", "status", "Get info about the server.")
     ];
     let matches = match groups::getopts(args.tail(), opts) {
         Ok(m) => m,
@@ -35,12 +36,14 @@ fn main() {
         return;
     }
 
+    let status = matches.opt_present("status");
     let name = matches.opt_str("name").unwrap_or(DEFAULT_NAME.to_owned());
     let ip = matches.opt_str("server").unwrap_or(DEFAULT_IP.to_owned());
     let port = matches.opt_str("port").map_default(DEFAULT_PORT, |x| from_str(x).expect("invalid port"));
 
     // And now we're off to the races!
     match conn::Connection::new(name, ip, port) {
+        Ok(ref mut c) if status => c.status(),
         Ok(c) => c.run(),
         Err(e) => fail!("Unable to connect to server: {}.", e)
     }
