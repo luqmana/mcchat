@@ -52,13 +52,11 @@ impl Connection {
         self.send_handshake(false);
 
         // Send the status request
-        do self.write_packet |_, w| {
-            w.write_varint(0x0);
-        }
+        self.write_packet(0x0, |_, _| ());
 
-        // and read it back
-        do self.read_packet |_, r| {
-            assert_eq!(r.read_varint(), 0x0);
+        // and read back the response
+        do self.read_packet |packet_id, _, r| {
+            assert_eq!(packet_id, 0x0);
 
             println(r.read_string());
         }
@@ -70,9 +68,9 @@ impl Connection {
         self.send_handshake(true);
         self.send_username();
 
-        do self.read_packet |_, r| {
+        do self.read_packet |packet_id, _, r| {
             // Server should've responded with success packet
-            assert_eq!(r.read_u8(), 0x2);
+            assert_eq!(packet_id, 0x2);
 
             let uuid = r.read_string();
             debug!("UUID: {}", uuid);
@@ -100,25 +98,21 @@ impl Connection {
                     println!("Message too long.");
                     continue;
                 }
-                do self.write_packet |_, w| {
-                    // Packet ID
-                    w.write_varint(0x1);
 
+                // Send the message!
+                do self.write_packet(0x1) |_, w| {
                     // Message
                     w.write_string(msg);
                 }
             }
 
-            do self.read_packet |this, r| {
-                let packet_id = r.read_varint();
-
+            do self.read_packet |packet_id, conn, r| {
                 // Keep Alive
                 if packet_id == 0x0 {
                     let x = r.read_be_i32();
 
                     // Need to respond
-                    do this.write_packet |_, w| {
-                        w.write_varint(0x0);
+                    do conn.write_packet(0x0) |_, w| {
                         w.write_be_i32(x);
                     }
 
@@ -151,10 +145,13 @@ impl Connection {
         port
     }
 
-    fn write_packet(&mut self, f: &fn(&mut Connection, &mut MemWriter)) {
+    fn write_packet(&mut self, id: i32, f: &fn(&mut Connection, &mut MemWriter)) {
         // Create a buffer that we'll write to in memory
         // that way we can determine the total packet length
         let mut buf = MemWriter::new();
+
+        // Write out the packet id
+        buf.write_varint(id);
 
         // Let the caller do what they need to
         f(self, &mut buf);
@@ -171,7 +168,7 @@ impl Connection {
         self.sock.write(buf);
     }
 
-    fn read_packet(&mut self, f: &fn(&mut Connection, &mut MemReader)) {
+    fn read_packet(&mut self, f: &fn(i32, &mut Connection, &mut MemReader)) {
         // Read the packet length
         let len = self.sock.read_varint();
 
@@ -179,17 +176,17 @@ impl Connection {
         let mut buf = vec::from_elem(len as uint, 0u8);
         self.sock.read(buf);
 
+        // Let's put it in a Reader
+        // to more easily interact with the data
         let mut buf = MemReader::new(buf);
 
-        // Let the caller do their thing
-        f(self, &mut buf);
+        // Get the packet id and let the caller do their thing
+        let id = buf.read_varint();
+        f(id, self, &mut buf);
     }
 
     fn send_handshake(&mut self, login: bool) {
-        do self.write_packet |this, w| {
-            // Packet ID
-            w.write_u8(0x0);
-
+        do self.write_packet(0x0) |this, w| {
             // Protocol Version
             w.write_varint(4);
 
@@ -206,10 +203,7 @@ impl Connection {
     }
 
     fn send_username(&mut self) {
-        do self.write_packet |this, w| {
-            // Packet ID
-            w.write_u8(0x0);
-
+        do self.write_packet(0x0) |this, w| {
             // User name
             w.write_string(this.name);
         }
