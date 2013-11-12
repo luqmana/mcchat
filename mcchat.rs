@@ -5,6 +5,7 @@ use std::os;
 use std::rt::io::timer::Timer;
 
 mod conn;
+mod crypto;
 mod util;
 
 static DEFAULT_NAME: &'static str = "cmc-bot";
@@ -25,7 +26,8 @@ fn main() {
         groups::optopt("p", "port", "Minecraft server port", "PORT"),
         groups::optopt("n", "name", "Username to use.", "NAME"),
         groups::optflag("c", "status", "Get info about the server."),
-        groups::optflag("r", "reconnect", "Try to reconnect on some failures.")
+        groups::optflag("r", "reconnect", "Try to reconnect on some failures."),
+        groups::optflag("k", "key", "generate some keys")
     ];
     let matches = match groups::getopts(args.tail(), opts) {
         Ok(m) => m,
@@ -35,6 +37,18 @@ fn main() {
     // Should we print out the usage message?
     if matches.opt_present("help") {
         usage(args[0], opts);
+        return;
+    }
+
+    if matches.opt_present("key") {
+        let r = crypto::RSAKeyPair::new(1024, 3).unwrap();
+        println!("{}", r.to_str());
+        let s = "test data";
+        println!("unencrpyted: {}", s);
+        let e = r.encrypt(s.as_bytes()).unwrap();
+        println!("encrypted: {:?}", e);
+        let d = r.decrypt(e).unwrap();
+        println!("decrypted: {}", std::str::from_utf8(d));
         return;
     }
 
