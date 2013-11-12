@@ -1,64 +1,8 @@
 use std::libc::{c_int, c_long, c_ulong, c_void};
+use std::rt::io::{Reader, Stream, Writer};
+use std::rt::io::mem::MemWriter;
 use std::{ptr, str, vec};
 
-mod ll {
-    use std::libc::{c_int, c_long, c_uchar, c_ulong, c_void, size_t};
-
-    // Opaque types, yay
-    pub type EVP_CIPHER_CTX = c_void;
-    pub type RSA = c_void;
-    type BIO_METHOD = c_void;
-    type BIO = c_void;
-    type EVP_CIPHER = c_void;
-    type ENGINE = c_void;
-
-    // Some constants
-    pub static RSA_PKCS1_PADDING: c_int = 1;
-    pub static RSA_SSLV23_PADDING: c_int = 2;
-    pub static RSA_NO_PADDING: c_int = 3;
-    pub static RSA_PKCS1_OAEP_PADDING: c_int = 4;
-    pub static RSA_X931_PADDING: c_int = 5;
-
-    pub static AES_BLOCK_SIZE: c_int = 16;
-
-    #[link_args = "-lssl -lcrypto"]
-    extern {
-        pub fn RSA_generate_key(n: c_int, e: c_ulong, _: *c_void, _: *c_void) -> *RSA;
-        pub fn RSA_free(k: *RSA);
-        pub fn RSA_size(k: *RSA) -> c_int;
-        pub fn RSA_public_encrypt(flen: c_int, from: *c_uchar, to: *c_uchar, rsa: *RSA, padding: c_int) -> c_int;
-        pub fn RSA_private_decrypt(flen: c_int, from: *c_uchar, to: *c_uchar, rsa: *RSA, padding: c_int) -> c_int;
-
-        pub fn BIO_new(t: *BIO_METHOD) -> *BIO;
-        pub fn BIO_free_all(a: *BIO);
-        pub fn BIO_s_mem() -> *BIO_METHOD;
-        pub fn BIO_ctrl_pending(b: *BIO) -> size_t;
-        pub fn BIO_read(b: *BIO, buf: *c_void, sz: c_int) -> c_int;
-
-        pub fn PEM_read_bio_RSAPublicKey(b: *BIO, x: **RSA, _: *c_void, _: *c_void) -> *RSA;
-        pub fn PEM_write_bio_RSAPublicKey(b: *BIO, x: *RSA) -> c_int;
-        pub fn PEM_write_bio_RSA_PUBKEY(b: *BIO, x: *RSA) -> c_int;
-        pub fn PEM_read_bio_RSAPrivateKey(b: *BIO, x: **RSA, _: *c_void, _: *c_void) -> *RSA;
-        pub fn PEM_write_bio_RSAPrivateKey(b: *BIO, x: *RSA, _: *c_void, _: *c_void, _: c_int, _: *c_void, _: *c_void) -> c_int;
-
-        pub fn d2i_RSA_PUBKEY(a: **RSA, pp: **c_uchar, len: c_long) -> *RSA;
-        pub fn i2d_RSA_PUBKEY(a: *RSA, pp: **c_uchar) -> c_int;
-
-        pub fn EVP_CIPHER_CTX_new() -> *EVP_CIPHER_CTX;
-        pub fn EVP_CIPHER_CTX_free(x: *EVP_CIPHER_CTX);
-        pub fn EVP_CIPHER_CTX_cleanup(x: *EVP_CIPHER_CTX) -> c_int;
-
-        pub fn EVP_EncryptInit_ex(c: *EVP_CIPHER_CTX, t: *EVP_CIPHER, e: *ENGINE, k: *c_uchar, i: *c_uchar) -> c_int;
-        pub fn EVP_EncryptUpdate(c: *EVP_CIPHER_CTX, o: *c_uchar, ol: *c_int, i: *c_uchar, il: c_int) -> c_int;
-        pub fn EVP_EncryptFinal_ex(c: *EVP_CIPHER_CTX, o: *c_uchar, ol: *c_int) -> c_int;
-        pub fn EVP_DecryptInit_ex(c: *EVP_CIPHER_CTX, t: *EVP_CIPHER, e: *ENGINE, k: *c_uchar, i: *c_uchar) -> c_int;
-        pub fn EVP_DecryptUpdate(c: *EVP_CIPHER_CTX, o: *c_uchar, ol: *c_int, i: *c_uchar, il: c_int) -> c_int;
-        pub fn EVP_DecryptFinal_ex(c: *EVP_CIPHER_CTX, o: *c_uchar, ol: *c_int) -> c_int;
-
-        pub fn EVP_aes_128_cfb8() -> *EVP_CIPHER;
-
-    }
-}
 
 struct AES {
     encrypt_ctx: *ll::EVP_CIPHER_CTX,
@@ -147,6 +91,60 @@ impl Drop for AES {
             ll::EVP_CIPHER_CTX_free(self.encrypt_ctx);
             ll::EVP_CIPHER_CTX_free(self.decrypt_ctx);
         }
+    }
+}
+
+struct AesStream<T> {
+    priv stream: T,
+    priv cipher: AES
+}
+
+impl<T: Stream> AesStream<T> {
+    pub fn new(s: T, c: AES) -> AesStream<T> {
+        AesStream {
+            stream: s,
+            cipher: c
+        }
+    }
+}
+
+impl<T: Reader> Reader for AesStream<T> {
+    fn read(&mut self, buf: &mut [u8]) -> Option<uint> {
+        let ein = self.stream.read_bytes(buf.len());
+        for (i, bit) in ein.move_iter().enumerate() {
+            match self.cipher.decrypt([bit]) {
+                Ok([o]) => buf[i] = o,
+                _ => return None
+            }
+        }
+
+        Some(buf.len())
+    }
+
+    fn eof(&mut self) -> bool {
+        self.stream.eof()
+    }
+}
+
+impl<T: Writer> Writer for AesStream<T> {
+    fn write(&mut self, buf: &[u8]) {
+        // Write to mem first so we don't do as many
+        // actual write's which would suck on sockets
+        let mut mem_buf = MemWriter::new();
+
+        for &b in buf.iter() {
+            match self.cipher.encrypt([b]) {
+                Ok(ebuf) => mem_buf.write(ebuf),
+                Err(_) => ()
+            }
+        }
+
+        // Now do a single write to the backing stream
+        self.stream.write(mem_buf.inner());
+    }
+
+    fn flush(&mut self) {
+        self.stream.flush();
     }
 }
 
@@ -263,7 +261,6 @@ impl ToStr for RSAPrivateKey {
                                             0, ptr::null(), ptr::null());
 
             let len = ll::BIO_ctrl_pending(bio);
-            debug!("len - {}", len);
             let buf = vec::from_elem(len as uint, 0u8);
             ll::BIO_read(bio, &buf[0] as *u8 as *c_void, len as c_int);
 
@@ -321,5 +318,60 @@ impl RSAKeyPair {
 impl ToStr for RSAKeyPair {
     fn to_str(&self) -> ~str {
         format!("{}\n{}", self.pub_key.to_str(), self.pri_key.to_str())
+    }
+}
+
+mod ll {
+    use std::libc::{c_int, c_long, c_uchar, c_ulong, c_void, size_t};
+
+    // Opaque types, yay
+    pub type EVP_CIPHER_CTX = c_void;
+    pub type RSA = c_void;
+    type BIO_METHOD = c_void;
+    type BIO = c_void;
+    type EVP_CIPHER = c_void;
+    type ENGINE = c_void;
+
+    // Some constants
+    pub static RSA_PKCS1_PADDING: c_int = 1;
+
+    pub static AES_BLOCK_SIZE: c_int = 16;
+
+    #[link_args = "-lssl -lcrypto"]
+    extern {
+        pub fn RSA_generate_key(n: c_int, e: c_ulong, _: *c_void, _: *c_void) -> *RSA;
+        pub fn RSA_free(k: *RSA);
+        pub fn RSA_size(k: *RSA) -> c_int;
+        pub fn RSA_public_encrypt(flen: c_int, from: *c_uchar, to: *c_uchar, rsa: *RSA, padding: c_int) -> c_int;
+        pub fn RSA_private_decrypt(flen: c_int, from: *c_uchar, to: *c_uchar, rsa: *RSA, padding: c_int) -> c_int;
+
+        pub fn BIO_new(t: *BIO_METHOD) -> *BIO;
+        pub fn BIO_free_all(a: *BIO);
+        pub fn BIO_s_mem() -> *BIO_METHOD;
+        pub fn BIO_ctrl_pending(b: *BIO) -> size_t;
+        pub fn BIO_read(b: *BIO, buf: *c_void, sz: c_int) -> c_int;
+
+        pub fn PEM_read_bio_RSAPublicKey(b: *BIO, x: **RSA, _: *c_void, _: *c_void) -> *RSA;
+        pub fn PEM_write_bio_RSAPublicKey(b: *BIO, x: *RSA) -> c_int;
+        pub fn PEM_write_bio_RSA_PUBKEY(b: *BIO, x: *RSA) -> c_int;
+        pub fn PEM_read_bio_RSAPrivateKey(b: *BIO, x: **RSA, _: *c_void, _: *c_void) -> *RSA;
+        pub fn PEM_write_bio_RSAPrivateKey(b: *BIO, x: *RSA, _: *c_void, _: *c_void, _: c_int, _: *c_void, _: *c_void) -> c_int;
+
+        pub fn d2i_RSA_PUBKEY(a: **RSA, pp: **c_uchar, len: c_long) -> *RSA;
+        pub fn i2d_RSA_PUBKEY(a: *RSA, pp: **c_uchar) -> c_int;
+
+        pub fn EVP_CIPHER_CTX_new() -> *EVP_CIPHER_CTX;
+        pub fn EVP_CIPHER_CTX_free(x: *EVP_CIPHER_CTX);
+        pub fn EVP_CIPHER_CTX_cleanup(x: *EVP_CIPHER_CTX) -> c_int;
+
+        pub fn EVP_EncryptInit_ex(c: *EVP_CIPHER_CTX, t: *EVP_CIPHER, e: *ENGINE, k: *c_uchar, i: *c_uchar) -> c_int;
+        pub fn EVP_EncryptUpdate(c: *EVP_CIPHER_CTX, o: *c_uchar, ol: *c_int, i: *c_uchar, il: c_int) -> c_int;
+        pub fn EVP_EncryptFinal_ex(c: *EVP_CIPHER_CTX, o: *c_uchar, ol: *c_int) -> c_int;
+        pub fn EVP_DecryptInit_ex(c: *EVP_CIPHER_CTX, t: *EVP_CIPHER, e: *ENGINE, k: *c_uchar, i: *c_uchar) -> c_int;
+        pub fn EVP_DecryptUpdate(c: *EVP_CIPHER_CTX, o: *c_uchar, ol: *c_int, i: *c_uchar, il: c_int) -> c_int;
+        pub fn EVP_DecryptFinal_ex(c: *EVP_CIPHER_CTX, o: *c_uchar, ol: *c_int) -> c_int;
+
+        pub fn EVP_aes_128_cfb8() -> *EVP_CIPHER;
+
     }
 }

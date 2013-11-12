@@ -57,10 +57,25 @@ fn main() {
         println!("decrypted: {}", std::str::from_utf8(d));
 
         let aes = crypto::AES::new(~[1, ..16], ~[2, ..16]).unwrap();
+
         let s = "aes test data";
-        println!("unecrypted: {}", s);
+        println!("unecrypted: [{}] {}", s.len(), s);
         let e = aes.encrypt(s.as_bytes()).unwrap();
-        println!("encrypted: {:?}", e);
+        println!("encrypted: [{}] {:?}", e.len(), e);
+        let d = aes.decrypt(e).unwrap();
+        println!("decrypted: {}", std::str::from_utf8(d));
+
+        let s = "f".repeat(2);
+        println!("unecrypted: [{}] {}", s.len(), s);
+        let e = aes.encrypt(s.as_bytes()).unwrap();
+        println!("encrypted: [{}] {:?}", e.len(), e);
+        let d = aes.decrypt(e).unwrap();
+        println!("decrypted: {}", std::str::from_utf8(d));
+
+        let s = "this should be a fairly longish string that is pretty long. long.";
+        println!("unecrypted: [{}] {}", s.len(), s);
+        let e = aes.encrypt(s.as_bytes()).unwrap();
+        println!("encrypted: [{}] {:?}", e.len(), e);
         let d = aes.decrypt(e).unwrap();
         println!("decrypted: {}", std::str::from_utf8(d));
         return;
