@@ -93,10 +93,12 @@ pub fn maybe_print_message(j: json::Json) {
                             json::Object(ref v) => {
                                 match v.find(&~"extra") {
                                     Some(&json::List(ref l)) => {
-                                        let msg = match l[0] {
-                                            json::String(ref s) => s.clone(),
-                                            _ => return
-                                        };
+                                        let msg = l.iter().map(|x| {
+                                            match x {
+                                                &json::String(ref s) => s.clone(),
+                                                _ => ~""
+                                            }
+                                        }).to_owned_vec().concat();
                                         println!("[Server] {}", msg);
                                     }
                                     _ => {}
