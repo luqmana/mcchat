@@ -133,6 +133,7 @@ impl Connection {
 
         let mut rtask = task::task();
         rtask.sched_mode(task::SingleThreaded);
+        rtask.supervised();
         do rtask.spawn_with(chan) |chan| {
             println("Type message and then [ENTER] to send:");
 
