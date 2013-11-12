@@ -1,6 +1,6 @@
 use std::libc::{c_int, c_long, c_ulong, c_void};
-use std::rt::io::{Reader, Stream, Writer};
-use std::rt::io::mem::MemWriter;
+use std::io::{Decorator, Reader, Stream, Writer};
+use std::io::mem::MemWriter;
 use std::{ptr, str, vec};
 
 

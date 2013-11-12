@@ -1,12 +1,12 @@
 use extra::json;
 
 use std::task;
-use std::rt::{comm, io};
-use std::rt::io::{io_error, Decorator, Reader, Writer};
-use std::rt::io::buffered::BufferedReader;
-use std::rt::io::mem::{MemReader, MemWriter};
-use std::rt::io::net::tcp::TcpStream;
-use std::rt::io::net::ip::SocketAddr;
+use std::{comm, io};
+use std::io::{io_error, Decorator, Reader, Writer};
+use std::io::buffered::BufferedReader;
+use std::io::mem::{MemReader, MemWriter};
+use std::io::net::tcp::TcpStream;
+use std::io::net::ip::SocketAddr;
 use std::vec;
 
 use crypto;

@@ -1,6 +1,6 @@
 use extra::json;
 
-use std::rt::io::{Reader, Writer};
+use std::io::{Reader, Writer};
 use std::{str, vec};
 
 pub trait WriterExtensions: Writer {

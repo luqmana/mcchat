@@ -2,7 +2,7 @@ extern mod extra;
 
 use extra::getopts::groups;
 use std::os;
-use std::rt::io::timer::Timer;
+use std::io::timer::Timer;
 
 mod conn;
 mod crypto;
@@ -91,7 +91,7 @@ fn main() {
 }
 
 fn serve(name: &str, ip: &str, port: u16, status: bool, reconn: bool) {
-    do std::rt::io::io_error::cond.trap(|e| {
+    do std::io::io_error::cond.trap(|e| {
         if reconn {
             println!("Oops, something happened. Will reconnect in 5 seconds...");
 
