@@ -43,11 +43,25 @@ fn main() {
     if matches.opt_present("key") {
         let r = crypto::RSAKeyPair::new(1024, 3).unwrap();
         println!("{}", r.to_str());
-        let s = "test data";
+        let s = "rsa test data";
         println!("unencrpyted: {}", s);
         let e = r.encrypt(s.as_bytes()).unwrap();
         println!("encrypted: {:?}", e);
         let d = r.decrypt(e).unwrap();
+        println!("decrypted: {}", std::str::from_utf8(d));
+
+        let pk = crypto::RSAPublicKey::from_bytes(r.pub_key.to_bytes()).unwrap();
+        let e = pk.encrypt(s.as_bytes()).unwrap();
+        println!("encrypted (sep): {:?}", e);
+        let d = r.decrypt(e).unwrap();
+        println!("decrypted: {}", std::str::from_utf8(d));
+
+        let aes = crypto::AES::new(~[1, ..16], ~[2, ..16]).unwrap();
+        let s = "aes test data";
+        println!("unecrypted: {}", s);
+        let e = aes.encrypt(s.as_bytes()).unwrap();
+        println!("encrypted: {:?}", e);
+        let d = aes.decrypt(e).unwrap();
         println!("decrypted: {}", std::str::from_utf8(d));
         return;
     }

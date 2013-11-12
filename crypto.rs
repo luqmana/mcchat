@@ -1,13 +1,16 @@
-use std::libc::{c_int, c_ulong, c_void};
+use std::libc::{c_int, c_long, c_ulong, c_void};
 use std::{ptr, str, vec};
 
 mod ll {
-    use std::libc::{c_int, c_uchar, c_ulong, c_void, size_t};
+    use std::libc::{c_int, c_long, c_uchar, c_ulong, c_void, size_t};
 
     // Opaque types, yay
+    pub type EVP_CIPHER_CTX = c_void;
     pub type RSA = c_void;
     type BIO_METHOD = c_void;
     type BIO = c_void;
+    type EVP_CIPHER = c_void;
+    type ENGINE = c_void;
 
     // Some constants
     pub static RSA_PKCS1_PADDING: c_int = 1;
@@ -15,6 +18,8 @@ mod ll {
     pub static RSA_NO_PADDING: c_int = 3;
     pub static RSA_PKCS1_OAEP_PADDING: c_int = 4;
     pub static RSA_X931_PADDING: c_int = 5;
+
+    pub static AES_BLOCK_SIZE: c_int = 16;
 
     #[link_args = "-lssl -lcrypto"]
     extern {
@@ -35,6 +40,113 @@ mod ll {
         pub fn PEM_write_bio_RSA_PUBKEY(b: *BIO, x: *RSA) -> c_int;
         pub fn PEM_read_bio_RSAPrivateKey(b: *BIO, x: **RSA, _: *c_void, _: *c_void) -> *RSA;
         pub fn PEM_write_bio_RSAPrivateKey(b: *BIO, x: *RSA, _: *c_void, _: *c_void, _: c_int, _: *c_void, _: *c_void) -> c_int;
+
+        pub fn d2i_RSA_PUBKEY(a: **RSA, pp: **c_uchar, len: c_long) -> *RSA;
+        pub fn i2d_RSA_PUBKEY(a: *RSA, pp: **c_uchar) -> c_int;
+
+        pub fn EVP_CIPHER_CTX_new() -> *EVP_CIPHER_CTX;
+        pub fn EVP_CIPHER_CTX_free(x: *EVP_CIPHER_CTX);
+        pub fn EVP_CIPHER_CTX_cleanup(x: *EVP_CIPHER_CTX) -> c_int;
+
+        pub fn EVP_EncryptInit_ex(c: *EVP_CIPHER_CTX, t: *EVP_CIPHER, e: *ENGINE, k: *c_uchar, i: *c_uchar) -> c_int;
+        pub fn EVP_EncryptUpdate(c: *EVP_CIPHER_CTX, o: *c_uchar, ol: *c_int, i: *c_uchar, il: c_int) -> c_int;
+        pub fn EVP_EncryptFinal_ex(c: *EVP_CIPHER_CTX, o: *c_uchar, ol: *c_int) -> c_int;
+        pub fn EVP_DecryptInit_ex(c: *EVP_CIPHER_CTX, t: *EVP_CIPHER, e: *ENGINE, k: *c_uchar, i: *c_uchar) -> c_int;
+        pub fn EVP_DecryptUpdate(c: *EVP_CIPHER_CTX, o: *c_uchar, ol: *c_int, i: *c_uchar, il: c_int) -> c_int;
+        pub fn EVP_DecryptFinal_ex(c: *EVP_CIPHER_CTX, o: *c_uchar, ol: *c_int) -> c_int;
+
+        pub fn EVP_aes_128_cfb8() -> *EVP_CIPHER;
+
+    }
+}
+
+struct AES {
+    encrypt_ctx: *ll::EVP_CIPHER_CTX,
+    decrypt_ctx: *ll::EVP_CIPHER_CTX,
+    key: ~[u8],
+    iv: ~[u8]
+}
+
+impl AES {
+    pub fn new(key: ~[u8], iv: ~[u8]) -> Result<AES, ~str> {
+        unsafe {
+            let ectx = ll::EVP_CIPHER_CTX_new();
+            let dctx = ll::EVP_CIPHER_CTX_new();
+
+            if key.len() != iv.len() {
+                return Err(~"key and iv length mismatch.");
+            }
+
+            Ok(AES {
+                encrypt_ctx: ectx,
+                decrypt_ctx: dctx,
+                key: key,
+                iv: iv
+            })
+        }
+    }
+
+    pub fn encrypt(&self, data: &[u8]) -> Result<~[u8], ~str> {
+        unsafe {
+            let (blen, mut elen) = (0, 0);
+            let mut emsg = vec::from_elem(data.len() + ll::AES_BLOCK_SIZE as uint, 0u8);
+
+            let e = ll::EVP_EncryptInit_ex(self.encrypt_ctx, ll::EVP_aes_128_cfb8(),
+                                           ptr::null(), &self.key[0], &self.iv[0]);
+            if e == 0 {
+                return Err(~"unable to init encrypt context.");
+            }
+
+            let outp = vec::raw::to_ptr(emsg);
+            let inp = vec::raw::to_ptr(data);
+            ll::EVP_EncryptUpdate(self.encrypt_ctx, outp, &blen, inp, data.len() as c_int);
+
+            elen += blen;
+
+            ll::EVP_EncryptFinal_ex(self.encrypt_ctx, outp.offset(elen as int), &blen);
+
+            ll::EVP_CIPHER_CTX_cleanup(self.encrypt_ctx);
+
+            vec::raw::set_len(&mut emsg, (elen + blen) as uint);
+
+            Ok(emsg)
+        }
+    }
+
+    pub fn decrypt(&self, data: &[u8]) -> Result<~[u8], ~str> {
+        unsafe {
+            let (blen, mut dlen) = (0, 0);
+            let mut dmesg = vec::from_elem(data.len(), 0u8);
+
+            let e = ll::EVP_DecryptInit_ex(self.decrypt_ctx, ll::EVP_aes_128_cfb8(),
+                                           ptr::null(), &self.key[0], &self.iv[0]);
+            if e == 0 {
+                return Err(~"unable to init decrypt context.");
+            }
+
+            let outp = vec::raw::to_ptr(dmesg);
+            let inp = vec::raw::to_ptr(data);
+            ll::EVP_DecryptUpdate(self.decrypt_ctx, outp, &blen, inp, data.len() as c_int);
+            dlen += blen;
+
+            ll::EVP_DecryptFinal_ex(self.decrypt_ctx, outp.offset(dlen as int), &blen);
+            dlen += blen;
+
+            ll::EVP_CIPHER_CTX_cleanup(self.decrypt_ctx);
+
+            vec::raw::set_len(&mut dmesg, dlen as uint);
+
+            Ok(dmesg)
+        }
+    }
+}
+
+impl Drop for AES {
+    fn drop(&mut self) {
+        unsafe {
+            ll::EVP_CIPHER_CTX_free(self.encrypt_ctx);
+            ll::EVP_CIPHER_CTX_free(self.decrypt_ctx);
+        }
     }
 }
 
@@ -43,6 +155,32 @@ struct RSAPublicKey {
 }
 
 impl RSAPublicKey {
+    pub fn from_bytes(b: &[u8]) -> Result<RSAPublicKey, ~str> {
+        unsafe {
+            let p = vec::raw::to_ptr(b);
+
+            let k = ll::d2i_RSA_PUBKEY(ptr::null(), &p, b.len() as c_long);
+            if k.is_null() {
+                return Err(~"unable to RSA public key");
+            }
+
+            Ok(RSAPublicKey {
+                k: k
+            })
+        }
+    }
+
+    pub fn to_bytes(&self) -> ~[u8] {
+        unsafe {
+            let l = ll::i2d_RSA_PUBKEY(self.k, ptr::null());
+            let buf = vec::from_elem(l as uint, 0u8);
+            let p = vec::raw::to_ptr(buf);
+            ll::i2d_RSA_PUBKEY(self.k, &p);
+
+            buf
+        }
+    }
+
     pub fn encrypt(&self, data: &[u8]) -> Result<~[u8], ~str> {
         unsafe {
             let sz = ll::RSA_size(self.k);
@@ -50,7 +188,7 @@ impl RSAPublicKey {
             let buf = vec::from_elem(sz as uint, 0u8);
 
             let elen = ll::RSA_public_encrypt(data.len() as c_int, &data[0], &buf[0],
-                                              self.k, ll::RSA_PKCS1_OAEP_PADDING);
+                                              self.k, ll::RSA_PKCS1_PADDING);
 
             if elen == -1 {
                 return Err(~"unable to encrypt data");
@@ -96,7 +234,7 @@ impl RSAPrivateKey {
             let mut buf = vec::from_elem(data.len(), 0u8);
 
             let dlen = ll::RSA_private_decrypt(data.len() as c_int, &data[0], &buf[0],
-                                               self.k, ll::RSA_PKCS1_OAEP_PADDING);
+                                               self.k, ll::RSA_PKCS1_PADDING);
 
             if dlen == -1 {
                 return Err(~"unable to decrypt data");

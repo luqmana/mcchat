@@ -9,6 +9,7 @@ use std::rt::io::net::tcp::TcpStream;
 use std::rt::io::net::ip::SocketAddr;
 use std::vec;
 
+use crypto;
 use util;
 use util::{ReaderExtensions, WriterExtensions};
 
@@ -69,14 +70,32 @@ impl Connection {
         self.send_username();
 
         do self.read_packet |packet_id, _, r| {
-            // Server should've responded with success packet
-            assert_eq!(packet_id, 0x2);
+            // Encryption Request
+            if packet_id == 0x1 {
 
-            let uuid = r.read_string();
-            debug!("UUID: {}", uuid);
+                let server_id = r.read_string();
+                let key_len = r.read_be_i16();
+                let public_key = r.read_bytes(key_len as uint);
+                let token_len = r.read_be_i16();
+                let verify_token = r.read_bytes(token_len as uint);
 
-            let username = r.read_string();
-            debug!("Username: {}", username);
+                debug!("Server ID: {}", server_id);
+                debug!("Key Len: {}", key_len);
+                debug!("Key: {:?}", public_key);
+                debug!("Token Len: {}", token_len);
+                debug!("Token: {:?}", verify_token);
+
+                let pk = crypto::RSAPublicKey::from_bytes(public_key).unwrap();
+
+            // Login Success
+            } else if packet_id == 0x2 {
+                let uuid = r.read_string();
+                debug!("UUID: {}", uuid);
+
+                let username = r.read_string();
+                debug!("Username: {}", username);
+            }
+
         }
 
         println("Successfully connected to server.");
@@ -107,6 +126,7 @@ impl Connection {
             }
 
             do self.read_packet |packet_id, conn, r| {
+
                 // Keep Alive
                 if packet_id == 0x0 {
                     let x = r.read_be_i32();
