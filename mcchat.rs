@@ -26,8 +26,7 @@ fn main() {
         groups::optopt("p", "port", "Minecraft server port", "PORT"),
         groups::optopt("n", "name", "Username to use.", "NAME"),
         groups::optflag("c", "status", "Get info about the server."),
-        groups::optflag("r", "reconnect", "Try to reconnect on some failures."),
-        groups::optflag("k", "key", "generate some keys")
+        groups::optflag("r", "reconnect", "Try to reconnect on some failures.")
     ];
     let matches = match groups::getopts(args.tail(), opts) {
         Ok(m) => m,
@@ -37,60 +36,6 @@ fn main() {
     // Should we print out the usage message?
     if matches.opt_present("help") {
         usage(args[0], opts);
-        return;
-    }
-
-    if matches.opt_present("key") {
-        let r = crypto::RSAKeyPair::new(1024, 3).unwrap();
-        println!("{}", r.to_str());
-        let s = "rsa test data";
-        println!("unencrpyted: {}", s);
-        let e = r.encrypt(s.as_bytes()).unwrap();
-        println!("encrypted: {:?}", e);
-        let d = r.decrypt(e).unwrap();
-        println!("decrypted: {}", std::str::from_utf8(d));
-
-        let pk = crypto::RSAPublicKey::from_bytes(r.pub_key.to_bytes()).unwrap();
-        let e = pk.encrypt(s.as_bytes()).unwrap();
-        println!("encrypted (sep): {:?}", e);
-        let d = r.decrypt(e).unwrap();
-        println!("decrypted: {}", std::str::from_utf8(d));
-
-        let aes = crypto::AES::new(~[1, ..16], ~[2, ..16]).unwrap();
-
-        let s = "aes test data";
-        println!("unecrypted: [{}] {}", s.len(), s);
-        let e = aes.encrypt(s.as_bytes()).unwrap();
-        println!("encrypted: [{}] {:?}", e.len(), e);
-        let d = aes.decrypt(e).unwrap();
-        println!("decrypted: {}", std::str::from_utf8(d));
-
-        let s = "f".repeat(2);
-        println!("unecrypted: [{}] {}", s.len(), s);
-        let e = aes.encrypt(s.as_bytes()).unwrap();
-        println!("encrypted: [{}] {:?}", e.len(), e);
-        let d = aes.decrypt(e).unwrap();
-        println!("decrypted: {}", std::str::from_utf8(d));
-
-        let s = "this should be a fairly longish string that is pretty long. long.";
-        println!("unecrypted: [{}] {}", s.len(), s);
-        let e = aes.encrypt(s.as_bytes()).unwrap();
-        println!("encrypted: [{}] {:?}", e.len(), e);
-        let d = aes.decrypt(e).unwrap();
-        println!("decrypted: {}", std::str::from_utf8(d));
-
-        let m = "four here";
-        println!("message: {}", m);
-        let d = crypto::SHA1::init(m.as_bytes()).final();
-        println!("sha1 digest: [{}] {:?}", d.len(), d);
-        for x in d.iter() {
-            print!("{:02x}", *x);
-        }
-        println("");
-        println!("{}", crypto::SHA1::init(m.as_bytes()).digest());
-        println!("Notch: {}", crypto::SHA1::init("Notch".as_bytes()).special_digest());
-        println!("jeb_: {}", crypto::SHA1::init("jeb_".as_bytes()).special_digest());
-        println!("simon: {}", crypto::SHA1::init("simon".as_bytes()).special_digest());
         return;
     }
 
