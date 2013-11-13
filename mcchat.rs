@@ -9,7 +9,7 @@ mod crypto;
 mod util;
 
 static DEFAULT_NAME: &'static str = "cmc-bot";
-static DEFAULT_IP: &'static str   = "127.0.0.1";
+static DEFAULT_HOST: &'static str = "127.0.0.1";
 static DEFAULT_PORT: u16          = 6660;
 
 /// Print out the usage message.
@@ -22,7 +22,7 @@ fn main() {
     let args = os::args();
     let opts = [
         groups::optflag("h", "help", "Display this message"),
-        groups::optopt("s", "server", "Minecraft server ip address", "IP"),
+        groups::optopt("s", "server", "Minecraft server host", "HOST"),
         groups::optopt("p", "port", "Minecraft server port", "PORT"),
         groups::optopt("n", "name", "Username to use.", "NAME"),
         groups::optflag("c", "status", "Get info about the server."),
@@ -83,14 +83,14 @@ fn main() {
 
     let status = matches.opt_present("status");
     let name = matches.opt_str("name").unwrap_or(DEFAULT_NAME.to_owned());
-    let ip = matches.opt_str("server").unwrap_or(DEFAULT_IP.to_owned());
+    let host = matches.opt_str("server").unwrap_or(DEFAULT_HOST.to_owned());
     let port = matches.opt_str("port").map_default(DEFAULT_PORT, |x| from_str(x).expect("invalid port"));
     let reconn = matches.opt_present("reconnect");
 
-    serve(name, ip, port, status, reconn);
+    serve(name, host, port, status, reconn);
 }
 
-fn serve(name: &str, ip: &str, port: u16, status: bool, reconn: bool) {
+fn serve(name: &str, host: &str, port: u16, status: bool, reconn: bool) {
     do std::io::io_error::cond.trap(|e| {
         if reconn {
             println!("Oops, something happened. Will reconnect in 5 seconds...");
@@ -98,13 +98,13 @@ fn serve(name: &str, ip: &str, port: u16, status: bool, reconn: bool) {
             let mut timer = Timer::new().unwrap();
             timer.sleep(5000);
 
-            serve(name, ip, port, status, reconn);
+            serve(name, host, port, status, reconn);
         } else {
             fail!(e.to_str());
         }
     }).inside {
         // And now we're off to the races!
-        match conn::Connection::new(name.to_owned(), ip.to_owned(), port) {
+        match conn::Connection::new(name.to_owned(), host.to_owned(), port) {
             Ok(ref mut c) if status => c.status(),
             Ok(c) => c.run(),
             Err(e) => fail!("Unable to connect to server: {}.", e)

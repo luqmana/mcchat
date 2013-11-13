@@ -5,6 +5,7 @@ use std::{comm, io};
 use std::io::{io_error, Decorator, Reader, Writer};
 use std::io::buffered::BufferedReader;
 use std::io::mem::{MemReader, MemWriter};
+use std::io::net::addrinfo;
 use std::io::net::tcp::TcpStream;
 use std::io::net::ip::SocketAddr;
 use std::vec;
@@ -15,16 +16,18 @@ use util::{ReaderExtensions, WriterExtensions};
 
 struct Connection {
     addr: SocketAddr,
+    host: ~str,
     sock: TcpStream,
     name: ~str
 }
 
 impl Connection {
-    pub fn new(name: ~str, ip: &str, port: u16) -> Result<Connection, ~str> {
-        let addr: SocketAddr = match from_str(format!("{}:{}", ip, port)) {
-            Some(a) => a,
-            None => return Err(~"unable to parse given ip/port")
+    pub fn new(name: ~str, host: ~str, port: u16) -> Result<Connection, ~str> {
+        let addr = match addrinfo::get_host_addresses(host) {
+            Some(a) => a[0],
+            None => return Err(~"unable to resolve host address")
         };
+        let addr = SocketAddr { ip: addr, port: port };
 
         debug!("Connecting to server at {}.", addr.to_str());
         let mut err = ~"";
@@ -43,6 +46,7 @@ impl Connection {
 
         Ok(Connection {
             addr: addr,
+            host: host,
             sock: sock,
             name: name
         })
@@ -207,15 +211,15 @@ impl Connection {
     }
 
     fn send_handshake(&mut self, login: bool) {
-        do self.write_packet(0x0) |this, w| {
+        do self.write_packet(0x0) |conn, w| {
             // Protocol Version
             w.write_varint(4);
 
             // Server host
-            w.write_string(this.addr.ip.to_str());
+            w.write_string(conn.host);
 
             // Server port
-            w.write_be_u16(this.addr.port);
+            w.write_be_u16(conn.addr.port);
 
             // State
             // 1 - status, 2 - login
@@ -224,9 +228,9 @@ impl Connection {
     }
 
     fn send_username(&mut self) {
-        do self.write_packet(0x0) |this, w| {
+        do self.write_packet(0x0) |conn, w| {
             // User name
-            w.write_string(this.name);
+            w.write_string(conn.name);
         }
     }
 }
