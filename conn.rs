@@ -8,7 +8,6 @@ use std::io::mem::{MemReader, MemWriter};
 use std::io::net::addrinfo;
 use std::io::net::tcp::TcpStream;
 use std::io::net::ip::SocketAddr;
-use std::vec;
 
 use crypto;
 use util;
@@ -89,7 +88,7 @@ impl Connection {
                 debug!("Token Len: {}", token_len);
                 debug!("Token: {:?}", verify_token);
 
-                let pk = crypto::RSAPublicKey::from_bytes(public_key).unwrap();
+                let _pk = crypto::RSAPublicKey::from_bytes(public_key).unwrap();
 
             // Login Success
             } else if packet_id == 0x2 {
@@ -198,8 +197,7 @@ impl Connection {
         let len = self.sock.read_varint();
 
         // Now the payload
-        let mut buf = vec::from_elem(len as uint, 0u8);
-        self.sock.read(buf);
+        let buf = self.sock.read_bytes(len as uint);
 
         // Let's put it in a Reader
         // to more easily interact with the data

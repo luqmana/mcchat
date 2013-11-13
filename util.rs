@@ -1,7 +1,7 @@
 use extra::json;
 
 use std::io::{Reader, Writer};
-use std::{str, vec};
+use std::str;
 
 pub trait WriterExtensions: Writer {
     fn write_varint(&mut self, mut x: i32) {
@@ -47,8 +47,7 @@ pub trait ReaderExtensions: Reader {
 
     fn read_string(&mut self) -> ~str {
         let len = self.read_varint();
-        let mut buf = vec::from_elem(len as uint, 0u8);
-        self.read(buf);
+        let buf = self.read_bytes(len as uint);
 
         str::from_utf8_owned(buf)
     }
