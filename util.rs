@@ -3,6 +3,31 @@ use extra::json;
 use std::io::{Reader, Writer};
 use std::str;
 
+use crypto;
+
+impl crypto::SHA1 {
+    pub fn special_digest(self) -> ~str {
+        let mut digest = self.final();
+
+        let neg = (digest[0] & 0x80) == 0x80;
+        if neg {
+            let mut carry = true;
+            for x in digest.mut_iter().invert() {
+                *x = !*x;
+                if carry {
+                    carry = *x == 0xFF;
+                    *x = *x + 1;
+                }
+            }
+        }
+
+        let digest = crypto::SHA1::hex(digest);
+        let digest = digest.trim_left_chars(&'0').to_owned();
+
+        if neg { "-" + digest } else { digest }
+    }
+}
+
 pub trait WriterExtensions: Writer {
     fn write_varint(&mut self, mut x: i32) {
         let mut buf = [0u8, ..10];

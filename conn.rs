@@ -8,15 +8,24 @@ use std::io::mem::{MemReader, MemWriter};
 use std::io::net::addrinfo;
 use std::io::net::tcp::TcpStream;
 use std::io::net::ip::SocketAddr;
+use std::io::process;
+use std::rand;
+use std::rand::Rng;
+use std::str;
 
 use crypto;
 use util;
 use util::{ReaderExtensions, WriterExtensions};
 
+enum Sock {
+    Plain(TcpStream),
+    Encrypted(crypto::AesStream<TcpStream>)
+}
+
 struct Connection {
     addr: SocketAddr,
     host: ~str,
-    sock: TcpStream,
+    sock: Option<Sock>,
     name: ~str
 }
 
@@ -46,7 +55,7 @@ impl Connection {
         Ok(Connection {
             addr: addr,
             host: host,
-            sock: sock,
+            sock: Some(Plain(sock)),
             name: name
         })
     }
@@ -69,37 +78,7 @@ impl Connection {
 
     pub fn run(mut self) {
 
-        self.send_handshake(true);
-        self.send_username();
-
-        do self.read_packet |packet_id, _, r| {
-            // Encryption Request
-            if packet_id == 0x1 {
-
-                let server_id = r.read_string();
-                let key_len = r.read_be_i16();
-                let public_key = r.read_bytes(key_len as uint);
-                let token_len = r.read_be_i16();
-                let verify_token = r.read_bytes(token_len as uint);
-
-                debug!("Server ID: {}", server_id);
-                debug!("Key Len: {}", key_len);
-                debug!("Key: {:?}", public_key);
-                debug!("Token Len: {}", token_len);
-                debug!("Token: {:?}", verify_token);
-
-                let _pk = crypto::RSAPublicKey::from_bytes(public_key).unwrap();
-
-            // Login Success
-            } else if packet_id == 0x2 {
-                let uuid = r.read_string();
-                debug!("UUID: {}", uuid);
-
-                let username = r.read_string();
-                debug!("Username: {}", username);
-            }
-
-        }
+        self.login();
 
         println("Successfully connected to server.");
 
@@ -151,6 +130,183 @@ impl Connection {
         }
     }
 
+    fn login(&mut self) {
+        self.send_handshake(true);
+        self.send_username();
+
+        // Read the next packet and find out whether we need
+        // to do authentication adn encryption
+        do self.read_packet |packet_id, conn, r| {
+            let (uuid, username) = if packet_id == 0x1 {
+                // Encryption Request
+                let server_id = r.read_string();
+                let key_len = r.read_be_i16();
+                let public_key = r.read_bytes(key_len as uint);
+                let token_len = r.read_be_i16();
+                let verify_token = r.read_bytes(token_len as uint);
+
+                debug!("Server ID: {}", server_id);
+                debug!("Key Len: {}", key_len);
+                debug!("Key: {:?}", public_key);
+                debug!("Token Len: {}", token_len);
+                debug!("Token: {:?}", verify_token);
+
+                // Server's public key
+                let pk = crypto::RSAPublicKey::from_bytes(public_key).unwrap();
+
+                // Generate random 16 byte key
+                let mut key = ~[0u8, ..16];
+                rand::task_rng().fill_bytes(key);
+
+                // Encrypt shared secret with server's public key
+                let ekey = pk.encrypt(key).unwrap();
+
+                // Encrypt verify token with server's public key
+                let etoken = pk.encrypt(verify_token).unwrap();
+
+                // Generate the server id hash
+                let mut sha1 = crypto::SHA1::new();
+                sha1.update(server_id.as_bytes());
+                sha1.update(key);
+                sha1.update(public_key);
+                let hash = sha1.special_digest();
+
+                debug!("Hash: {}", hash);
+
+                // Do client auth
+                conn.authenticate(hash);
+
+                do conn.write_packet(0x1) |_, w| {
+                    // Send encrypted shared secret
+                    w.write_be_i16(ekey.len() as i16);
+                    w.write(ekey);
+
+                    // Send encrypted verify token
+                    w.write_be_i16(etoken.len() as i16);
+                    w.write(etoken);
+                }
+
+                // Create AES cipher with shared secret
+                let aes = crypto::AES::new(key.clone(), key.clone()).unwrap();
+
+                // Get the plain Tcp stream
+                let sock = match conn.sock.take_unwrap() {
+                    Plain(s) => s,
+                    _ => unreachable!()
+                };
+
+                // and wrap it in an AES stream
+                // everything from this point is encrypted
+                conn.sock = Some(Encrypted(crypto::AesStream::new(sock, aes)));
+
+                do conn.read_packet |p, _, rr| {
+                    // Login Success
+                    assert_eq!(p, 0x2);
+
+                    (rr.read_string(), rr.read_string())
+                }
+
+            } else if packet_id == 0x2 {
+                // Login Success
+                (r.read_string(), r.read_string())
+            } else {
+                fail!("Unknown packet in login sequence: {:X}", packet_id)
+            };
+
+            debug!("UUID: {}", uuid);
+            debug!("Username: {}", username);
+        }
+    }
+
+    fn authenticate(&mut self, hash: ~str) {
+        let payload = format!("\
+        \\{\
+            \"agent\": \\{\
+                \"name\": \"Minecraft\",\
+                \"version\": 1\
+            \\},\
+            \"username\": \"{}\",\
+            \"password\": \"{}\"\
+        \\}", "USER", "PASSWORD"); // XXX: Don't hardcode these...
+        let url = ~"https://authserver.mojang.com/authenticate";
+        let io = [
+            process::CreatePipe(true, false),
+            process::CreatePipe(false, true),
+        ];
+        let c = process::ProcessConfig {
+            program: "/usr/bin/curl",
+            args: [~"-d", ~"@-", ~"-H", ~"Content-Type:application/json", url],
+            env: None,
+            cwd: None,
+            io: io
+        };
+        let mut p = process::Process::new(c).unwrap();
+
+        // write json to stdin and close it
+        p.io[0].get_mut_ref().write(payload.as_bytes());
+        p.io[0] = None;
+
+        // read response
+        let out = p.io[1].get_mut_ref().read_to_end();
+        let out = str::from_utf8(out);
+        debug!("Got - {}", out);
+
+        let json = json::from_str(out).unwrap();
+        let token = match json {
+            json::Object(ref o) => {
+                match o.find(&~"accessToken") {
+                    Some(&json::String(ref s)) => s.clone(),
+                    _ => ~""
+                }
+            }
+            _ => fail!("")
+        };
+        let profile = match json {
+            json::Object(ref o) => {
+                match o.find(&~"selectedProfile") {
+                    Some(&json::Object(ref d)) => {
+                        match d.find(&~"id") {
+                            Some(&json::String(ref s)) => s.clone(),
+                            _ => ~""
+                        }
+                    }
+                    _ => ~""
+                }
+            }
+            _ => fail!("")
+        };
+
+        let payload = format!("\
+        \\{\
+            \"accessToken\": \"{}\",\
+            \"selectedProfile\": \"{}\",\
+            \"serverId\": \"{}\"\
+        \\}", token, profile, hash);
+        debug!("writing: {}", payload);
+        let url = ~"https://sessionserver.mojang.com/session/minecraft/join";
+        let io = [
+            process::CreatePipe(true, false),
+            process::CreatePipe(false, true),
+        ];
+        let c = process::ProcessConfig {
+            program: "/usr/bin/curl",
+            args: [~"-d", ~"@-", ~"-H", ~"Content-Type:application/json", url],
+            env: None,
+            cwd: None,
+            io: io
+        };
+        let mut p = process::Process::new(c).unwrap();
+
+        // write json to stdin and close it
+        p.io[0].get_mut_ref().write(payload.as_bytes());
+        p.io[0] = None;
+
+        // read response
+        let out = p.io[1].get_mut_ref().read_to_end();
+        let out = str::from_utf8(out);
+        debug!("Got - {}", out);
+    }
+
     fn read_messages(&self) -> comm::Port<~str> {
         let (port, chan) = comm::stream();
 
@@ -192,7 +348,7 @@ impl Connection {
         self.sock.write(buf);
     }
 
-    fn read_packet(&mut self, f: &fn(i32, &mut Connection, &mut MemReader)) {
+    fn read_packet<T>(&mut self, f: &fn(i32, &mut Connection, &mut MemReader) -> T) -> T {
         // Read the packet length
         let len = self.sock.read_varint();
 
@@ -205,7 +361,7 @@ impl Connection {
 
         // Get the packet id and let the caller do their thing
         let id = buf.read_varint();
-        f(id, self, &mut buf);
+        f(id, self, &mut buf)
     }
 
     fn send_handshake(&mut self, login: bool) {
@@ -229,6 +385,38 @@ impl Connection {
         do self.write_packet(0x0) |conn, w| {
             // User name
             w.write_string(conn.name);
+        }
+    }
+}
+
+impl Reader for Sock {
+    fn read(&mut self, buf: &mut [u8]) -> Option<uint> {
+        match *self {
+            Plain(ref mut s) => s.read(buf),
+            Encrypted(ref mut s) => s.read(buf)
+        }
+    }
+
+    fn eof(&mut self) -> bool {
+        match *self {
+            Plain(ref mut s) => s.eof(),
+            Encrypted(ref mut s) => s.eof()
+        }
+    }
+}
+
+impl Writer for Sock {
+    fn write(&mut self, buf: &[u8]) {
+        match *self {
+            Plain(ref mut s) => s.write(buf),
+            Encrypted(ref mut s) => s.write(buf)
+        }
+    }
+
+    fn flush(&mut self) {
+        match *self {
+            Plain(ref mut s) => s.flush(),
+            Encrypted(ref mut s) => s.flush()
         }
     }
 }

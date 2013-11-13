@@ -1,24 +1,106 @@
-use std::libc::{c_int, c_long, c_ulong, c_void};
+use std::libc::{c_int, c_long, c_ulong, c_void, size_t};
 use std::io::{Decorator, Reader, Stream, Writer};
 use std::io::mem::MemWriter;
-use std::{ptr, str, vec};
+use std::{fmt, ptr, str, vec};
 
+struct SHA1 {
+    priv ctx: *ll::EVP_MD_CTX
+}
+
+impl SHA1 {
+    pub fn new() -> SHA1 {
+        unsafe {
+            let ctx = ll::EVP_MD_CTX_create();
+            ll::EVP_DigestInit(ctx, ll::EVP_sha1());
+
+            SHA1 {
+                ctx: ctx
+            }
+        }
+    }
+
+    pub fn init(buf: &[u8]) -> SHA1 {
+        let mut s = SHA1::new();
+        s.update(buf);
+        s
+    }
+
+    pub fn update(&mut self, buf: &[u8]) {
+        unsafe {
+            let bufp = vec::raw::to_ptr(buf);
+            ll::EVP_DigestUpdate(self.ctx, bufp, buf.len() as size_t);
+        }
+    }
+
+    pub fn final(self) -> ~[u8] {
+        unsafe {
+            let mut buf = vec::from_elem(ll::EVP_MAX_MD_SIZE as uint, 0u8);
+            let len = 0;
+
+            let bufp = vec::raw::to_ptr(buf);
+            ll::EVP_DigestFinal(self.ctx, bufp, &len);
+
+            vec::raw::set_len(&mut buf, len as uint);
+
+            buf
+        }
+    }
+
+    pub fn digest(self) -> ~str {
+        let buf = self.final();
+        SHA1::hex(buf)
+    }
+
+    pub fn hex(buf: ~[u8]) -> ~str {
+        let mut out = MemWriter::new();
+
+        for x in buf.move_iter() {
+            format_args!(|a| fmt::write(&mut out as &mut Writer, a), "{:02x}", x);
+        }
+
+        let out = out.inner();
+        str::from_utf8(out.slice_to(40))
+    }
+}
+
+impl Drop for SHA1 {
+    fn drop(&mut self) {
+        unsafe {
+            ll::EVP_MD_CTX_destroy(self.ctx);
+        }
+    }
+}
 
 struct AES {
-    encrypt_ctx: *ll::EVP_CIPHER_CTX,
-    decrypt_ctx: *ll::EVP_CIPHER_CTX,
-    key: ~[u8],
-    iv: ~[u8]
+    priv encrypt_ctx: *ll::EVP_CIPHER_CTX,
+    priv decrypt_ctx: *ll::EVP_CIPHER_CTX,
+    priv key: ~[u8],
+    priv iv: ~[u8]
 }
 
 impl AES {
     pub fn new(key: ~[u8], iv: ~[u8]) -> Result<AES, ~str> {
         unsafe {
-            let ectx = ll::EVP_CIPHER_CTX_new();
-            let dctx = ll::EVP_CIPHER_CTX_new();
-
             if key.len() != iv.len() {
                 return Err(~"key and iv length mismatch.");
+            }
+
+            if key.len() != 16 {
+                return Err(~"wrong key length.");
+            }
+
+            let ectx = ll::EVP_CIPHER_CTX_new();
+            let e = ll::EVP_EncryptInit_ex(ectx, ll::EVP_aes_128_cfb8(),
+                                           ptr::null(), &key[0], &iv[0]);
+            if e == 0 {
+                return Err(~"unable to init encrypt context.");
+            }
+
+            let dctx = ll::EVP_CIPHER_CTX_new();
+            let d = ll::EVP_DecryptInit_ex(dctx, ll::EVP_aes_128_cfb8(),
+                                           ptr::null(), &key[0], &iv[0]);
+            if d == 0 {
+                return Err(~"unable to init decrypt context.");
             }
 
             Ok(AES {
@@ -35,12 +117,6 @@ impl AES {
             let (blen, mut elen) = (0, 0);
             let mut emsg = vec::from_elem(data.len() + ll::AES_BLOCK_SIZE as uint, 0u8);
 
-            let e = ll::EVP_EncryptInit_ex(self.encrypt_ctx, ll::EVP_aes_128_cfb8(),
-                                           ptr::null(), &self.key[0], &self.iv[0]);
-            if e == 0 {
-                return Err(~"unable to init encrypt context.");
-            }
-
             let outp = vec::raw::to_ptr(emsg);
             let inp = vec::raw::to_ptr(data);
             ll::EVP_EncryptUpdate(self.encrypt_ctx, outp, &blen, inp, data.len() as c_int);
@@ -48,8 +124,6 @@ impl AES {
             elen += blen;
 
             ll::EVP_EncryptFinal_ex(self.encrypt_ctx, outp.offset(elen as int), &blen);
-
-            ll::EVP_CIPHER_CTX_cleanup(self.encrypt_ctx);
 
             vec::raw::set_len(&mut emsg, (elen + blen) as uint);
 
@@ -62,12 +136,6 @@ impl AES {
             let (blen, mut dlen) = (0, 0);
             let mut dmesg = vec::from_elem(data.len(), 0u8);
 
-            let e = ll::EVP_DecryptInit_ex(self.decrypt_ctx, ll::EVP_aes_128_cfb8(),
-                                           ptr::null(), &self.key[0], &self.iv[0]);
-            if e == 0 {
-                return Err(~"unable to init decrypt context.");
-            }
-
             let outp = vec::raw::to_ptr(dmesg);
             let inp = vec::raw::to_ptr(data);
             ll::EVP_DecryptUpdate(self.decrypt_ctx, outp, &blen, inp, data.len() as c_int);
@@ -75,8 +143,6 @@ impl AES {
 
             ll::EVP_DecryptFinal_ex(self.decrypt_ctx, outp.offset(dlen as int), &blen);
             dlen += blen;
-
-            ll::EVP_CIPHER_CTX_cleanup(self.decrypt_ctx);
 
             vec::raw::set_len(&mut dmesg, dlen as uint);
 
@@ -88,7 +154,10 @@ impl AES {
 impl Drop for AES {
     fn drop(&mut self) {
         unsafe {
+            ll::EVP_CIPHER_CTX_cleanup(self.encrypt_ctx);
             ll::EVP_CIPHER_CTX_free(self.encrypt_ctx);
+
+            ll::EVP_CIPHER_CTX_cleanup(self.decrypt_ctx);
             ll::EVP_CIPHER_CTX_free(self.decrypt_ctx);
         }
     }
@@ -322,10 +391,12 @@ impl ToStr for RSAKeyPair {
 }
 
 mod ll {
-    use std::libc::{c_int, c_long, c_uchar, c_ulong, c_void, size_t};
+    use std::libc::{c_int, c_long, c_uchar, c_uint, c_ulong, c_void, size_t};
 
     // Opaque types, yay
     pub type EVP_CIPHER_CTX = c_void;
+    pub type EVP_MD_CTX = c_void;
+    pub type EVP_MD = c_void;
     pub type RSA = c_void;
     type BIO_METHOD = c_void;
     type BIO = c_void;
@@ -336,6 +407,8 @@ mod ll {
     pub static RSA_PKCS1_PADDING: c_int = 1;
 
     pub static AES_BLOCK_SIZE: c_int = 16;
+
+    pub static EVP_MAX_MD_SIZE: c_int = 36;
 
     #[link_args = "-lssl -lcrypto"]
     extern {
@@ -373,5 +446,13 @@ mod ll {
 
         pub fn EVP_aes_128_cfb8() -> *EVP_CIPHER;
 
+        pub fn EVP_MD_CTX_create() -> *EVP_MD_CTX;
+        pub fn EVP_MD_CTX_destroy(x: *EVP_MD_CTX);
+
+        pub fn EVP_DigestInit(c: *EVP_MD_CTX, t: *EVP_MD) -> c_int;
+        pub fn EVP_DigestUpdate(c: *EVP_MD_CTX, d: *c_uchar, l: size_t) -> c_int;
+        pub fn EVP_DigestFinal(c: *EVP_MD_CTX, md: *c_uchar, s: *c_uint) -> c_int;
+
+        pub fn EVP_sha1() -> *EVP_MD;
     }
 }

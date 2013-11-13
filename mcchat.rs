@@ -78,6 +78,19 @@ fn main() {
         println!("encrypted: [{}] {:?}", e.len(), e);
         let d = aes.decrypt(e).unwrap();
         println!("decrypted: {}", std::str::from_utf8(d));
+
+        let m = "four here";
+        println!("message: {}", m);
+        let d = crypto::SHA1::init(m.as_bytes()).final();
+        println!("sha1 digest: [{}] {:?}", d.len(), d);
+        for x in d.iter() {
+            print!("{:02x}", *x);
+        }
+        println("");
+        println!("{}", crypto::SHA1::init(m.as_bytes()).digest());
+        println!("Notch: {}", crypto::SHA1::init("Notch".as_bytes()).special_digest());
+        println!("jeb_: {}", crypto::SHA1::init("jeb_".as_bytes()).special_digest());
+        println!("simon: {}", crypto::SHA1::init("simon".as_bytes()).special_digest());
         return;
     }
 
