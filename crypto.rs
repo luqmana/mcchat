@@ -180,12 +180,12 @@ impl<T: Stream> AesStream<T> {
 impl<T: Reader> Reader for AesStream<T> {
     fn read(&mut self, buf: &mut [u8]) -> Option<uint> {
         let ein = self.stream.read_bytes(buf.len());
-        for (i, bit) in ein.move_iter().enumerate() {
-            match self.cipher.decrypt([bit]) {
-                Ok([o]) => buf[i] = o,
-                _ => return None
-            }
-        }
+        let din = match self.cipher.decrypt(ein) {
+            Ok(d) => d,
+            Err(_) => return None
+        };
+        let l = din.len();
+        buf.move_from(din, 0, l);
 
         Some(buf.len())
     }
@@ -197,19 +197,7 @@ impl<T: Reader> Reader for AesStream<T> {
 
 impl<T: Writer> Writer for AesStream<T> {
     fn write(&mut self, buf: &[u8]) {
-        // Write to mem first so we don't do as many
-        // actual write's which would suck on sockets
-        let mut mem_buf = MemWriter::new();
-
-        for &b in buf.iter() {
-            match self.cipher.encrypt([b]) {
-                Ok(ebuf) => mem_buf.write(ebuf),
-                Err(_) => ()
-            }
-        }
-
-        // Now do a single write to the backing stream
-        self.stream.write(mem_buf.inner());
+        self.stream.write(self.cipher.encrypt(buf).unwrap());
     }
 
     fn flush(&mut self) {

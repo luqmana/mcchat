@@ -78,6 +78,9 @@ impl Connection {
 
     pub fn run(mut self) {
 
+        // If the server is in online-mode
+        // we need to do authentication and
+        // enable encryption
         self.login();
 
         println("Successfully connected to server.");
@@ -107,26 +110,28 @@ impl Connection {
                 }
             }
 
-            do self.read_packet |packet_id, conn, r| {
+            // Read in and handle a packet
+            self.read_packet(|p, c, r| c.handle_message(p, r));
+        }
+    }
 
-                // Keep Alive
-                if packet_id == 0x0 {
-                    let x = r.read_be_i32();
+    fn handle_message(&mut self, packet_id: i32, r: &mut MemReader) {
+        // Keep Alive
+        if packet_id == 0x0 {
+            let x = r.read_be_i32();
 
-                    // Need to respond
-                    do conn.write_packet(0x0) |_, w| {
-                        w.write_be_i32(x);
-                    }
-
-                // Chat Message
-                } else if packet_id == 0x2 {
-                    let json = r.read_string();
-                    debug!("Got chat message: {}", json);
-
-                    let json = json::from_str(json).unwrap();
-                    util::maybe_print_message(json);
-                }
+            // Need to respond
+            do self.write_packet(0x0) |_, w| {
+                w.write_be_i32(x);
             }
+
+        // Chat Message
+        } else if packet_id == 0x2 {
+            let json = r.read_string();
+            debug!("Got chat message: {}", json);
+
+            let json = json::from_str(json).unwrap();
+            util::maybe_print_message(json);
         }
     }
 
@@ -135,10 +140,12 @@ impl Connection {
         self.send_username();
 
         // Read the next packet and find out whether we need
-        // to do authentication adn encryption
+        // to do authentication and encryption
         do self.read_packet |packet_id, conn, r| {
             let (uuid, username) = if packet_id == 0x1 {
                 // Encryption Request
+                // online-mode = true
+
                 let server_id = r.read_string();
                 let key_len = r.read_be_i16();
                 let public_key = r.read_bytes(key_len as uint);
@@ -176,6 +183,7 @@ impl Connection {
                 // Do client auth
                 conn.authenticate(hash);
 
+                // Send the Encryption Response
                 do conn.write_packet(0x1) |_, w| {
                     // Send encrypted shared secret
                     w.write_be_i16(ekey.len() as i16);
@@ -199,8 +207,8 @@ impl Connection {
                 // everything from this point is encrypted
                 conn.sock = Some(Encrypted(crypto::AesStream::new(sock, aes)));
 
+                // We should get Login Success from the server
                 do conn.read_packet |p, _, rr| {
-                    // Login Success
                     assert_eq!(p, 0x2);
 
                     (rr.read_string(), rr.read_string())
@@ -208,6 +216,8 @@ impl Connection {
 
             } else if packet_id == 0x2 {
                 // Login Success
+                // online-mode = false
+
                 (r.read_string(), r.read_string())
             } else {
                 fail!("Unknown packet in login sequence: {:X}", packet_id)
