@@ -98,7 +98,7 @@ impl Connection {
                 let msg = msgs.recv();
                 if msg.trim().is_empty() {
                     continue;
-                } else if msg.len() > 300 {
+                } else if msg.len() > 100 {
                     println!("Message too long.");
                     continue;
                 }
