@@ -14,6 +14,7 @@ use std::rand::Rng;
 use std::str;
 
 use crypto;
+use json::ExtraJSON;
 use util;
 use util::{ReaderExtensions, WriterExtensions};
 
@@ -223,15 +224,6 @@ impl Connection {
     }
 
     fn authenticate(&mut self, hash: ~str) {
-        let payload = format!("\
-        \\{\
-            \"agent\": \\{\
-                \"name\": \"Minecraft\",\
-                \"version\": 1\
-            \\},\
-            \"username\": \"{}\",\
-            \"password\": \"{}\"\
-        \\}", "USER", "PASSWORD"); // XXX: Don't hardcode these...
         let url = ~"https://authserver.mojang.com/authenticate";
         let io = [
             process::CreatePipe(true, false),
@@ -247,7 +239,15 @@ impl Connection {
         let mut p = process::Process::new(c).unwrap();
 
         // write json to stdin and close it
-        p.io[0].get_mut_ref().write(payload.as_bytes());
+        write!(p.io[0].get_mut_ref() as &mut Writer, r#"
+            \{
+                "agent": \{
+                    "name": "Minecraft",
+                    "version": 1
+                \},
+                "username": "{}",
+                "password": "{}"
+            \}"#, "USER", "PASS"); // XXX: Don't hardcode these...
         p.io[0] = None;
 
         // read response
@@ -255,38 +255,10 @@ impl Connection {
         let out = str::from_utf8(out);
         debug!("Got - {}", out);
 
-        let json = json::from_str(out).unwrap();
-        let token = match json {
-            json::Object(ref o) => {
-                match o.find(&~"accessToken") {
-                    Some(&json::String(ref s)) => s.clone(),
-                    _ => ~""
-                }
-            }
-            _ => fail!("")
-        };
-        let profile = match json {
-            json::Object(ref o) => {
-                match o.find(&~"selectedProfile") {
-                    Some(&json::Object(ref d)) => {
-                        match d.find(&~"id") {
-                            Some(&json::String(ref s)) => s.clone(),
-                            _ => ~""
-                        }
-                    }
-                    _ => ~""
-                }
-            }
-            _ => fail!("")
-        };
+        let json = ExtraJSON::new(json::from_str(out).unwrap());
+        let token = json["accessToken"].string();
+        let profile = json["selectedProfile"]["id"].string();
 
-        let payload = format!("\
-        \\{\
-            \"accessToken\": \"{}\",\
-            \"selectedProfile\": \"{}\",\
-            \"serverId\": \"{}\"\
-        \\}", token, profile, hash);
-        debug!("writing: {}", payload);
         let url = ~"https://sessionserver.mojang.com/session/minecraft/join";
         let io = [
             process::CreatePipe(true, false),
@@ -302,7 +274,12 @@ impl Connection {
         let mut p = process::Process::new(c).unwrap();
 
         // write json to stdin and close it
-        p.io[0].get_mut_ref().write(payload.as_bytes());
+        write!(p.io[0].get_mut_ref() as &mut Writer, r#"
+            \{
+                "accessToken": "{}",
+                "selectedProfile": "{}",
+                "serverId": "{}"
+            \}"#, token, profile, hash);
         p.io[0] = None;
 
         // read response
