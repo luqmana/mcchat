@@ -4,6 +4,7 @@ use std::io::{Reader, Writer};
 use std::str;
 
 use crypto;
+use json::ExtraJSON;
 
 impl crypto::SHA1 {
     pub fn special_digest(self) -> ~str {
@@ -81,60 +82,24 @@ pub trait ReaderExtensions: Reader {
 impl<T: Reader> ReaderExtensions for T {}
 
 pub fn maybe_print_message(j: json::Json) {
-    match j {
-        json::Object(~o) => {
-            let t = match o.find(&~"translate") {
-                Some(&json::String(ref s)) => s.clone(),
-                _ => return
-            };
+    // Let's wrap up the Json so that we can
+    // deal with it more easily
+    let j = ExtraJSON::new(j);
 
-            if "chat.type.text" == t {
-                match o.find(&~"with") {
-                    Some(&json::List(ref l)) => {
-                        let user = match l[0] {
-                            json::Object(ref v) => {
-                                match v.find(&~"text") {
-                                    Some(&json::String(ref s)) => s.clone(),
-                                    _ => return
-                                }
-                            }
-                            _ => return
-                        };
+    let ty = j["translate"].string();
 
-                        let msg = match l[1] {
-                            json::String(ref s) => s.clone(),
-                            _ => return
-                        };
+    // Player Chat
+    if "chat.type.text" == ty {
 
-                        println!("<{}> {}", user, msg);
-                    }
-                    _ => {}
-                }
-            } else if "chat.type.announcement" == t {
-                match o.find(&~"with") {
-                    Some(&json::List(ref l)) => {
-                        match l[1] {
-                            json::Object(ref v) => {
-                                match v.find(&~"extra") {
-                                    Some(&json::List(ref l)) => {
-                                        let msg = l.iter().map(|x| {
-                                            match x {
-                                                &json::String(ref s) => s.clone(),
-                                                _ => ~""
-                                            }
-                                        }).to_owned_vec().concat();
-                                        println!("[Server] {}", msg);
-                                    }
-                                    _ => {}
-                                }
-                            }
-                            _ => {}
-                        }
-                    }
-                    _ => {}
-                }
-            }
-        }
-        _ => {}
+        let user = j["with"][0]["text"].string();
+        let msg = j["with"][1].string();
+        println!("<{}> {}", user, msg);
+
+    // Server Message
+    } else if "chat.type.announcement" == ty {
+
+        let msg = j["with"][1]["extra"].list(|x| x.string()).concat();
+        println!("[Server] {}", msg);
+
     }
 }

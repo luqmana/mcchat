@@ -152,12 +152,6 @@ impl Connection {
                 let token_len = r.read_be_i16();
                 let verify_token = r.read_bytes(token_len as uint);
 
-                debug!("Server ID: {}", server_id);
-                debug!("Key Len: {}", key_len);
-                debug!("Key: {:?}", public_key);
-                debug!("Token Len: {}", token_len);
-                debug!("Token: {:?}", verify_token);
-
                 // Server's public key
                 let pk = crypto::RSAPublicKey::from_bytes(public_key).unwrap();
 
