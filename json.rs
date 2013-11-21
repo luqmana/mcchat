@@ -1,4 +1,5 @@
 use extra::json;
+use std::util;
 
 struct ExtraJSON(json::Json);
 
@@ -14,12 +15,23 @@ impl ExtraJSON {
         }
     }
 
-    pub fn list<T>(&self, f: &fn(&ExtraJSON) -> T) -> ~[T] {
+    pub fn list(&self) -> ~[ExtraJSON] {
+        self.list_map(util::id)
+    }
+
+    pub fn list_map<T>(&self, f: &fn(ExtraJSON) -> T) -> ~[T] {
         match **self {
             json::List(ref l) => {
-                l.map(|x| ExtraJSON(x.clone())).map(f)
+                l.map(|x| f(ExtraJSON(x.clone())))
             }
             _ => fail!("tried to get list from non-list")
+        }
+    }
+
+    pub fn as_int(&self) -> int {
+        match **self {
+            json::Number(f) => f as int,
+            _ => fail!("tried to get int from non-number")
         }
     }
 }

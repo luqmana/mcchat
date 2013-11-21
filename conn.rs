@@ -74,7 +74,17 @@ impl Connection {
         // Make sure we got the right response
         assert_eq!(packet_id, 0x0);
 
-        println(packet.read_string());
+        // Get the JSON
+        let json = ExtraJSON::new(json::from_str(packet.read_string()).unwrap());
+        println!("Minecraft Server Status [{}:{}]", self.host, self.addr.port);
+        println!("Version: {}", json["version"]["name"].string());
+        println!("Protocol: {}", json["version"]["protocol"].as_int());
+        println!("Description: {}", json["description"].string());
+        println!("Players: ({}/{})", json["players"]["online"].as_int(), json["players"]["max"].as_int());
+        let players = json["players"]["sample"].list();
+        for player in players.iter() {
+            println!("\t{} ({})", player["name"].string(), player["id"].string());
+        }
     }
 
     pub fn run(mut self) {

@@ -98,7 +98,7 @@ pub fn maybe_print_message(j: json::Json) {
     // Server Message
     } else if "chat.type.announcement" == ty {
 
-        let msg = j["with"][1]["extra"].list(|x| x.string()).concat();
+        let msg = j["with"][1]["extra"].list_map(|x| x.string()).concat();
         println!("[Server] {}", msg);
 
     }
