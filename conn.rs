@@ -2,9 +2,8 @@ use extra::json;
 
 use std::task;
 use std::{comm, io};
-use std::io::{io_error, Decorator, Reader, Writer};
+use std::io::{io_error, Reader, Writer};
 use std::io::buffered::BufferedReader;
-use std::io::mem::{MemReader, MemWriter};
 use std::io::net::addrinfo;
 use std::io::net::tcp::TcpStream;
 use std::io::net::ip::SocketAddr;
@@ -15,6 +14,7 @@ use std::str;
 
 use crypto;
 use json::ExtraJSON;
+use packet::Packet;
 use util;
 use util::{ReaderExtensions, WriterExtensions};
 
@@ -66,15 +66,15 @@ impl Connection {
         self.send_handshake(false);
 
         // Send the status request
-        self.write_packet(0x0, |_, _| ());
+        self.write_packet(Packet::new_out(0x0));
 
         // and read back the response
-        do self.read_packet |packet_id, _, r| {
-            assert_eq!(packet_id, 0x0);
+        let (packet_id, mut packet) = self.read_packet();
 
-            println(r.read_string());
-        }
+        // Make sure we got the right response
+        assert_eq!(packet_id, 0x0);
 
+        println(packet.read_string());
     }
 
     pub fn run(mut self) {
@@ -83,8 +83,6 @@ impl Connection {
         // we need to do authentication and
         // enable encryption
         self.login();
-
-        println("Successfully connected to server.");
 
         // Get a port to read messages from stdin
         let msgs = self.read_messages();
@@ -105,30 +103,30 @@ impl Connection {
                 }
 
                 // Send the message!
-                do self.write_packet(0x1) |_, w| {
-                    // Message
-                    w.write_string(msg);
-                }
+                let mut p = Packet::new_out(0x1);
+                p.write_string(msg);
+                self.write_packet(p);
             }
 
             // Read in and handle a packet
-            self.read_packet(|p, c, r| c.handle_message(p, r));
+            let (packet_id, mut packet) = self.read_packet();
+            self.handle_message(packet_id, &mut packet);
         }
     }
 
-    fn handle_message(&mut self, packet_id: i32, r: &mut MemReader) {
+    fn handle_message(&mut self, packet_id: i32, packet: &mut Packet) {
         // Keep Alive
         if packet_id == 0x0 {
-            let x = r.read_be_i32();
+            let x = packet.read_be_i32();
 
             // Need to respond
-            do self.write_packet(0x0) |_, w| {
-                w.write_be_i32(x);
-            }
+            let mut resp = Packet::new_out(0x0);
+            resp.write_be_i32(x);
+            self.write_packet(resp);
 
         // Chat Message
         } else if packet_id == 0x2 {
-            let json = r.read_string();
+            let json = packet.read_string();
             debug!("Got chat message: {}", json);
 
             let json = json::from_str(json).unwrap();
@@ -142,86 +140,95 @@ impl Connection {
 
         // Read the next packet and find out whether we need
         // to do authentication and encryption
-        do self.read_packet |packet_id, conn, r| {
-            let (uuid, username) = if packet_id == 0x1 {
-                // Encryption Request
-                // online-mode = true
+        let (mut packet_id, mut packet) = self.read_packet();
 
-                let server_id = r.read_string();
-                let key_len = r.read_be_i16();
-                let public_key = r.read_bytes(key_len as uint);
-                let token_len = r.read_be_i16();
-                let verify_token = r.read_bytes(token_len as uint);
+        if packet_id == 0x1 {
+            // Encryption Request
+            // online-mode = true
 
-                // Server's public key
-                let pk = crypto::RSAPublicKey::from_bytes(public_key).unwrap();
+            self.enable_encryption(&mut packet);
 
-                // Generate random 16 byte key
-                let mut key = ~[0u8, ..16];
-                rand::task_rng().fill_bytes(key);
-
-                // Encrypt shared secret with server's public key
-                let ekey = pk.encrypt(key).unwrap();
-
-                // Encrypt verify token with server's public key
-                let etoken = pk.encrypt(verify_token).unwrap();
-
-                // Generate the server id hash
-                let mut sha1 = crypto::SHA1::new();
-                sha1.update(server_id.as_bytes());
-                sha1.update(key);
-                sha1.update(public_key);
-                let hash = sha1.special_digest();
-
-                debug!("Hash: {}", hash);
-
-                // Do client auth
-                conn.authenticate(hash);
-
-                // Send the Encryption Response
-                do conn.write_packet(0x1) |_, w| {
-                    // Send encrypted shared secret
-                    w.write_be_i16(ekey.len() as i16);
-                    w.write(ekey);
-
-                    // Send encrypted verify token
-                    w.write_be_i16(etoken.len() as i16);
-                    w.write(etoken);
-                }
-
-                // Create AES cipher with shared secret
-                let aes = crypto::AES::new(key.clone(), key.clone()).unwrap();
-
-                // Get the plain Tcp stream
-                let sock = match conn.sock.take_unwrap() {
-                    Plain(s) => s,
-                    _ => unreachable!()
-                };
-
-                // and wrap it in an AES stream
-                // everything from this point is encrypted
-                conn.sock = Some(Encrypted(crypto::AesStream::new(sock, aes)));
-
-                // We should get Login Success from the server
-                do conn.read_packet |p, _, rr| {
-                    assert_eq!(p, 0x2);
-
-                    (rr.read_string(), rr.read_string())
-                }
-
-            } else if packet_id == 0x2 {
-                // Login Success
-                // online-mode = false
-
-                (r.read_string(), r.read_string())
-            } else {
-                fail!("Unknown packet in login sequence: {:X}", packet_id)
-            };
-
-            debug!("UUID: {}", uuid);
-            debug!("Username: {}", username);
+            // Read the next packet...
+            let (pi, p) = self.read_packet();
+            packet_id = pi;
+            packet = p;
         }
+
+        // Login Success
+        assert_eq!(packet_id, 0x2);
+        let uuid = packet.read_string();
+        let username = packet.read_string();
+
+        debug!("UUID: {}", uuid);
+        debug!("Username: {}", username);
     }
+
+    fn enable_encryption(&mut self, packet: &mut Packet) {
+
+        // Get all the data from the Encryption Request packet
+        let server_id = packet.read_string();
+        let key_len = packet.read_be_i16();
+        let public_key = packet.read_bytes(key_len as uint);
+        let token_len = packet.read_be_i16();
+        let verify_token = packet.read_bytes(token_len as uint);
+
+        // Server's public key
+        let pk = crypto::RSAPublicKey::from_bytes(public_key).unwrap();
+
+        // Generate random 16 byte key
+        let mut key = [0u8, ..16];
+        rand::task_rng().fill_bytes(key);
+
+        // Encrypt shared secret with server's public key
+        let ekey = pk.encrypt(key).unwrap();
+
+        // Encrypt verify token with server's public key
+        let etoken = pk.encrypt(verify_token).unwrap();
+
+        // Generate the server id hash
+        let mut sha1 = crypto::SHA1::new();
+        sha1.update(server_id.as_bytes());
+        sha1.update(key);
+        sha1.update(public_key);
+        let hash = sha1.special_digest();
+
+        debug!("Hash: {}", hash);
+
+        // Do client auth
+        self.authenticate(hash);
+
+        // Create Encryption Response Packet
+        let mut erp = Packet::new_out(0x1);
+
+        // Write encrypted shared secret
+        erp.write_be_i16(ekey.len() as i16);
+        erp.write(ekey);
+
+        // Write encrypted verify token
+        erp.write_be_i16(etoken.len() as i16);
+        erp.write(etoken);
+
+        // Send
+        self.write_packet(erp);
+
+        // Create AES cipher with shared secret
+        let aes = crypto::AES::new(key.to_owned(), key.to_owned()).unwrap();
+
+        // Get the plain TCP stream
+        let sock = match self.sock.take_unwrap() {
+            Plain(s) => s,
+            _ => fail!("Expected plain socket!")
+        };
+
+        // and wwrap it in an AES Stream
+        let sock = crypto::AesStream::new(sock, aes);
+
+        // and put the new encrypted stream back
+        // everything form this point is encrypted
+        self.sock = Some(Encrypted(sock));
+
+    }
+
 
     fn authenticate(&mut self, hash: ~str) {
         let url = ~"https://authserver.mojang.com/authenticate";
@@ -306,67 +313,56 @@ impl Connection {
         port
     }
 
-    fn write_packet(&mut self, id: i32, f: &fn(&mut Connection, &mut MemWriter)) {
-        // Create a buffer that we'll write to in memory
-        // that way we can determine the total packet length
-        let mut buf = MemWriter::new();
-
-        // Write out the packet id
-        buf.write_varint(id);
-
-        // Let the caller do what they need to
-        f(self, &mut buf);
-
-        // Now let's write it out to the network
-
+    fn write_packet(&mut self, mut p: Packet) {
         // Get the actual buffer
-        let buf = buf.inner();
+        let buf = p.out_buf().unwrap();
 
         // Write out the packet length
         self.sock.write_varint(buf.len() as i32);
 
         // and the actual payload
-        self.sock.write(buf);
+        self.sock.write(*buf);
     }
 
-    fn read_packet<T>(&mut self, f: &fn(i32, &mut Connection, &mut MemReader) -> T) -> T {
+    fn read_packet(&mut self) -> (i32, Packet) {
         // Read the packet length
         let len = self.sock.read_varint();
 
         // Now the payload
         let buf = self.sock.read_bytes(len as uint);
 
-        // Let's put it in a Reader
-        // to more easily interact with the data
-        let mut buf = MemReader::new(buf);
+        let mut p = Packet::new_in(buf);
 
-        // Get the packet id and let the caller do their thing
-        let id = buf.read_varint();
-        f(id, self, &mut buf)
+        // Get the packet
+        let id = p.read_varint();
+
+        (id, p)
     }
 
     fn send_handshake(&mut self, login: bool) {
-        do self.write_packet(0x0) |conn, w| {
-            // Protocol Version
-            w.write_varint(4);
+        let mut p = Packet::new_out(0x0);
 
-            // Server host
-            w.write_string(conn.host);
+        // Protocol Version
+        p.write_varint(4);
 
-            // Server port
-            w.write_be_u16(conn.addr.port);
+        // Server host
+        p.write_string(self.host);
 
-            // State
-            // 1 - status, 2 - login
-            w.write_varint(if login { 2 } else { 1 });
-        }
+        // Server port
+        p.write_be_u16(self.addr.port);
+
+        // State
+        // 1 - status, 2 - login
+        p.write_varint(if login { 2 } else { 1 });
+
+        self.write_packet(p);
     }
 
     fn send_username(&mut self) {
-        do self.write_packet(0x0) |conn, w| {
-            // User name
-            w.write_string(conn.name);
-        }
+        let mut p = Packet::new_out(0x0);
+        p.write_string(self.name);
+
+        self.write_packet(p);
     }
 }
 

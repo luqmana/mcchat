@@ -7,6 +7,7 @@ use std::io::timer::Timer;
 mod conn;
 mod crypto;
 mod json;
+mod packet;
 mod util;
 
 static DEFAULT_NAME: &'static str = "cmc-bot";
