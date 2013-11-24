@@ -443,4 +443,8 @@ mod ll {
 
         pub fn EVP_sha1() -> *EVP_MD;
     }
+
+    #[cfg(windows)]
+    #[link_args = "-lgdi32"]
+    extern {}
 }
