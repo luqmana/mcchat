@@ -1,5 +1,3 @@
-#[feature(managed_boxes)];
-
 extern mod extra;
 
 use extra::getopts::groups;

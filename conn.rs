@@ -9,6 +9,7 @@ use std::io::net::addrinfo;
 use std::io::net::tcp::TcpStream;
 use std::io::net::ip::SocketAddr;
 use std::io::process;
+use std::io::stdio::StdWriter;
 use std::rand;
 use std::rand::Rng;
 use std::str;
@@ -28,8 +29,7 @@ struct Connection {
     host: ~str,
     sock: Option<Sock>,
     name: ~str,
-    out: @mut Writer,
-    term: term::Terminal
+    term: term::Terminal<StdWriter>
 }
 
 impl Connection {
@@ -54,8 +54,7 @@ impl Connection {
         };
 
         debug!("Successfully connected to server.");
-        let out = @mut io::stdout() as @mut Writer;
-        let t = term::Terminal::new(out);
+        let t = term::Terminal::new(io::stdout());
         let t = t.expect("unable to get handle to terminal");
 
         Ok(Connection {
@@ -63,7 +62,6 @@ impl Connection {
             host: host,
             sock: Some(Plain(sock)),
             name: name,
-            out: out,
             term: t
         })
     }
@@ -160,10 +158,11 @@ impl Connection {
                 let msg = j["with"][1].string();
 
                 self.term.attr(term::attr::ForegroundColor(term::color::BRIGHT_GREEN));
-                write!(self.out, "<{}> ", user);
+                write!(&mut self.term as &mut Writer, "<{}> ", user);
                 self.term.reset();
 
-                writeln!(self.out, "{}", msg);
+                self.term.write(msg.as_bytes());
+                self.term.write(bytes!("\n"));
 
             // Server Message
             } else if "chat.type.announcement" == ty {
@@ -171,10 +170,11 @@ impl Connection {
                 let msg = j["with"][1]["extra"].list_map(|x| x.string()).concat();
 
                 self.term.attr(term::attr::ForegroundColor(term::color::BRIGHT_YELLOW));
-                write!(self.out, "[Server] ");
+                self.term.write(bytes!("[Server] "));
                 self.term.reset();
 
-                writeln!(self.out, "{}", msg);
+                self.term.write(msg.as_bytes());
+                self.term.write(bytes!("\n"));
 
             }
         }
