@@ -1,3 +1,4 @@
+use extra::term;
 use extra::json;
 
 use std::task;
@@ -15,7 +16,6 @@ use std::str;
 use crypto;
 use json::ExtraJSON;
 use packet::Packet;
-use util;
 use util::{ReaderExtensions, WriterExtensions};
 
 enum Sock {
@@ -27,7 +27,9 @@ struct Connection {
     addr: SocketAddr,
     host: ~str,
     sock: Option<Sock>,
-    name: ~str
+    name: ~str,
+    out: @mut Writer,
+    term: term::Terminal
 }
 
 impl Connection {
@@ -52,12 +54,17 @@ impl Connection {
         };
 
         debug!("Successfully connected to server.");
+        let out = @mut io::stdout() as @mut Writer;
+        let t = term::Terminal::new(out);
+        let t = t.expect("unable to get handle to terminal");
 
         Ok(Connection {
             addr: addr,
             host: host,
             sock: Some(Plain(sock)),
-            name: name
+            name: name,
+            out: out,
+            term: t
         })
     }
 
@@ -139,8 +146,37 @@ impl Connection {
             let json = packet.read_string();
             debug!("Got chat message: {}", json);
 
-            let json = json::from_str(json).unwrap();
-            util::maybe_print_message(json);
+            // Let's wrap up the Json so that we can
+            // deal with it more easily
+            let j = json::from_str(json).unwrap();
+            let j = ExtraJSON::new(j);
+
+            let ty = j["translate"].string();
+
+            // Player Chat
+            if "chat.type.text" == ty {
+
+                let user = j["with"][0]["text"].string();
+                let msg = j["with"][1].string();
+
+                self.term.attr(term::attr::ForegroundColor(term::color::BRIGHT_GREEN));
+                write!(self.out, "<{}> ", user);
+                self.term.reset();
+
+                writeln!(self.out, "{}", msg);
+
+            // Server Message
+            } else if "chat.type.announcement" == ty {
+
+                let msg = j["with"][1]["extra"].list_map(|x| x.string()).concat();
+
+                self.term.attr(term::attr::ForegroundColor(term::color::BRIGHT_YELLOW));
+                write!(self.out, "[Server] ");
+                self.term.reset();
+
+                writeln!(self.out, "{}", msg);
+
+            }
         }
     }
 

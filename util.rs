@@ -1,10 +1,7 @@
-use extra::json;
-
 use std::io::{Reader, Writer};
 use std::str;
 
 use crypto;
-use json::ExtraJSON;
 
 impl crypto::SHA1 {
     pub fn special_digest(self) -> ~str {
@@ -80,26 +77,3 @@ pub trait ReaderExtensions: Reader {
 }
 
 impl<T: Reader> ReaderExtensions for T {}
-
-pub fn maybe_print_message(j: json::Json) {
-    // Let's wrap up the Json so that we can
-    // deal with it more easily
-    let j = ExtraJSON::new(j);
-
-    let ty = j["translate"].string();
-
-    // Player Chat
-    if "chat.type.text" == ty {
-
-        let user = j["with"][0]["text"].string();
-        let msg = j["with"][1].string();
-        println!("<{}> {}", user, msg);
-
-    // Server Message
-    } else if "chat.type.announcement" == ty {
-
-        let msg = j["with"][1]["extra"].list_map(|x| x.string()).concat();
-        println!("[Server] {}", msg);
-
-    }
-}
