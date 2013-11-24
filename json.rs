@@ -40,25 +40,11 @@ trait ExtraJSONIndex {
     fn index(&self, j: &ExtraJSON) -> ExtraJSON;
 }
 
-impl ExtraJSONIndex for &'static str {
+impl<'a> ExtraJSONIndex for &'a str {
     fn index(&self, j: &ExtraJSON) -> ExtraJSON {
         match **j {
             json::Object(ref ij) => {
                 match ij.find(&self.to_owned()) {
-                    Some(jj) => ExtraJSON(jj.clone()),
-                    None => fail!("no such key")
-                }
-            }
-            _ => fail!("tried to index non-object with string")
-        }
-    }
-}
-
-impl ExtraJSONIndex for ~str {
-    fn index(&self, j: &ExtraJSON) -> ExtraJSON {
-        match **j {
-            json::Object(ref ij) => {
-                match ij.find(self) {
                     Some(jj) => ExtraJSON(jj.clone()),
                     None => fail!("no such key")
                 }
