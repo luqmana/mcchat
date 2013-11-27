@@ -51,7 +51,7 @@ fn main() {
 }
 
 fn serve(name: &str, host: &str, port: u16, status: bool, reconn: bool) {
-    do std::io::io_error::cond.trap(|e| {
+    std::io::io_error::cond.trap(|e| {
         if reconn {
             println!("Oops, something happened. Will reconnect in 5 seconds...");
 
@@ -62,12 +62,12 @@ fn serve(name: &str, host: &str, port: u16, status: bool, reconn: bool) {
         } else {
             fail!(e.to_str());
         }
-    }).inside {
+    }).inside(|| {
         // And now we're off to the races!
         match conn::Connection::new(name.to_owned(), host.to_owned(), port) {
             Ok(ref mut c) if status => c.status(),
             Ok(c) => c.run(),
             Err(e) => fail!("Unable to connect to server: {}.", e)
         }
-    }
+    })
 }

@@ -34,6 +34,8 @@ struct Connection {
 
 impl Connection {
     pub fn new(name: ~str, host: ~str, port: u16) -> Result<Connection, ~str> {
+
+        // Resolve host
         let addr = match addrinfo::get_host_addresses(host) {
             Some(a) => a[0],
             None => return Err(~"unable to resolve host address")
@@ -42,11 +44,9 @@ impl Connection {
 
         debug!("Connecting to server at {}.", addr.to_str());
         let mut err = ~"";
-        let sock = do io_error::cond.trap(|e| {
+        let sock = io_error::cond.trap(|e| {
             err = format!("{} - {}", e.kind.to_str(), e.desc);
-        }).inside {
-            TcpStream::connect(addr)
-        };
+        }).inside(|| TcpStream::connect(addr));
 
         let sock = match sock {
             Some(s) => s,
@@ -346,8 +346,7 @@ impl Connection {
 
         let mut rtask = task::task();
         rtask.sched_mode(task::SingleThreaded);
-        rtask.supervised();
-        do rtask.spawn_with(chan) |chan| {
+        do rtask.spawn {
             println("Type message and then [ENTER] to send:");
 
             let mut stdin = BufferedReader::new(io::stdin());

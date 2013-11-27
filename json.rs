@@ -19,7 +19,7 @@ impl ExtraJSON {
         self.list_map(util::id)
     }
 
-    pub fn list_map<T>(&self, f: &fn(ExtraJSON) -> T) -> ~[T] {
+    pub fn list_map<T>(&self, f: |ExtraJSON| -> T) -> ~[T] {
         match **self {
             json::List(ref l) => {
                 l.map(|x| f(ExtraJSON(x.clone())))
