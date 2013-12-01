@@ -2,7 +2,6 @@ extern mod extra;
 
 use extra::getopts::groups;
 use std::os;
-use std::io::timer::Timer;
 
 mod conn;
 mod crypto;
@@ -28,7 +27,6 @@ fn main() {
         groups::optopt("p", "port", "Minecraft server port", "PORT"),
         groups::optopt("n", "name", "Username to use.", "NAME"),
         groups::optflag("c", "status", "Get info about the server."),
-        groups::optflag("r", "reconnect", "Try to reconnect on some failures.")
     ];
     let matches = match groups::getopts(args.tail(), opts) {
         Ok(m) => m,
@@ -45,29 +43,11 @@ fn main() {
     let name = matches.opt_str("name").unwrap_or(DEFAULT_NAME.to_owned());
     let host = matches.opt_str("server").unwrap_or(DEFAULT_HOST.to_owned());
     let port = matches.opt_str("port").map_default(DEFAULT_PORT, |x| from_str(x).expect("invalid port"));
-    let reconn = matches.opt_present("reconnect");
 
-    serve(name, host, port, status, reconn);
-}
-
-fn serve(name: &str, host: &str, port: u16, status: bool, reconn: bool) {
-    std::io::io_error::cond.trap(|e| {
-        if reconn {
-            println!("Oops, something happened. Will reconnect in 5 seconds...");
-
-            let mut timer = Timer::new().unwrap();
-            timer.sleep(5000);
-
-            serve(name, host, port, status, reconn);
-        } else {
-            fail!(e.to_str());
-        }
-    }).inside(|| {
-        // And now we're off to the races!
-        match conn::Connection::new(name.to_owned(), host.to_owned(), port) {
-            Ok(ref mut c) if status => c.status(),
-            Ok(c) => c.run(),
-            Err(e) => fail!("Unable to connect to server: {}.", e)
-        }
-    })
+    // And now we're off to the races!
+    match conn::Connection::new(name, host, port) {
+        Ok(ref mut c) if status => c.status(),
+        Ok(c) => c.run(),
+        Err(e) => fail!("Unable to connect to server: {}.", e)
+    }
 }
