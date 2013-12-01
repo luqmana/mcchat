@@ -74,8 +74,6 @@ impl Drop for SHA1 {
 struct AES {
     priv encrypt_ctx: *ll::EVP_CIPHER_CTX,
     priv decrypt_ctx: *ll::EVP_CIPHER_CTX,
-    priv key: ~[u8],
-    priv iv: ~[u8]
 }
 
 impl AES {
@@ -106,8 +104,6 @@ impl AES {
             Ok(AES {
                 encrypt_ctx: ectx,
                 decrypt_ctx: dctx,
-                key: key,
-                iv: iv
             })
         }
     }
