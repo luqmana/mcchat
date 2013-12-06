@@ -59,7 +59,7 @@ impl SHA1 {
         }
 
         let out = out.inner();
-        str::from_utf8(out.slice_to(40))
+        str::from_utf8(out.slice_to(40)).to_owned()
     }
 }
 
@@ -394,7 +394,8 @@ mod ll {
 
     pub static EVP_MAX_MD_SIZE: c_int = 36;
 
-    #[link_args = "-lssl -lcrypto"]
+    #[link(name = "ssl")]
+    #[link(name = "crypto")]
     extern {
         pub fn RSA_generate_key(n: c_int, e: c_ulong, _: *c_void, _: *c_void) -> *RSA;
         pub fn RSA_free(k: *RSA);
@@ -441,6 +442,6 @@ mod ll {
     }
 
     #[cfg(windows)]
-    #[link_args = "-lgdi32"]
+    #[link(name = "gdi32")]
     extern {}
 }
