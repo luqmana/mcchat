@@ -3,53 +3,81 @@ use std::io::mem::{MemReader, MemWriter};
 
 use util::WriterExtensions;
 
-struct Packet {
-    priv in_buf: Option<MemReader>,
-    priv out_buf: Option<MemWriter>
+/**
+ * The Packet struct has a type parameter that isn't used in any
+ * of it's field (i.e. a phantom type). We use it to only implement
+ * certain methods for certain kinds of packets. This works since
+ * the struct itself is private and the only way to get a Packet is
+ * through one of two static methods: `new_in` and `new_out`.
+ *
+ * Packet<In> is basically just a wrapper around some buffer. It
+ * represents a complete packet that we've read in. We also
+ * implement the Reader trait to make it more convenient to
+ * access the data it encompasses.
+ *
+ * Packet<Out> represents a buffer we can write to as we build
+ * up a complete packet. It implements the Writer trait so we can
+ * use all those convenient methods.
+ */
+
+pub enum In {}
+pub enum Out {}
+
+struct Packet<T> {
+    priv buf: Either<MemReader, MemWriter>
 }
 
-impl Packet {
-    pub fn new_in(buf: ~[u8]) -> Packet {
+impl Packet<In> {
+    pub fn new_in(buf: ~[u8]) -> Packet<In> {
         Packet {
-            in_buf: Some(MemReader::new(buf)),
-            out_buf: None
+            buf: Left(MemReader::new(buf))
         }
     }
+}
 
-    pub fn new_out(packet_id: i32) -> Packet {
+impl Packet<Out> {
+    pub fn new_out(packet_id: i32) -> Packet<Out> {
         let mut p = Packet {
-            in_buf: None,
-            out_buf: Some(MemWriter::new())
+            buf: Right(MemWriter::new())
         };
         p.write_varint(packet_id);
 
         p
     }
 
-    pub fn out_buf<'a>(&'a mut self) -> Option<&'a ~[u8]> {
-        match self.out_buf {
-            Some(ref b) => Some(b.inner_ref()),
-            None => None
+    pub fn buf(self) -> ~[u8] {
+        self.buf.unwrap_right().inner()
+    }
+}
+
+impl Reader for Packet<In> {
+    fn read(&mut self, buf: &mut [u8]) -> Option<uint> {
+        match self.buf {
+            Left(ref mut r) => r.read(buf),
+            Right(..) => unreachable!()
+        }
+    }
+
+    fn eof(&mut self) -> bool {
+        match self.buf {
+            Left(ref mut r) => r.eof(),
+            Right(..) => unreachable!()
         }
     }
 }
 
-impl Reader for Packet {
-    fn read(&mut self, buf: &mut [u8]) -> Option<uint> {
-        self.in_buf.read(buf)
-    }
-
-    fn eof(&mut self) -> bool {
-        self.in_buf.eof()
-    }
-}
-
-impl Writer for Packet {
+impl Writer for Packet<Out> {
     fn write(&mut self, buf: &[u8]) {
-        self.out_buf.write(buf);
+        match self.buf {
+            Left(..) => unreachable!(),
+            Right(ref mut w) => w.write(buf)
+        }
     }
 
     fn flush(&mut self) {
-        self.out_buf.flush()
+        match self.buf {
+            Left(..) => unreachable!(),
+            Right(ref mut w) => w.flush()
+        }
     }
 }

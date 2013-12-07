@@ -16,6 +16,7 @@ use std::str;
 
 use crypto;
 use json::ExtraJSON;
+use packet;
 use packet::Packet;
 use util::{ReaderExtensions, WriterExtensions};
 
@@ -129,7 +130,7 @@ impl Connection {
         }
     }
 
-    fn handle_message(&mut self, packet_id: i32, packet: &mut Packet) {
+    fn handle_message(&mut self, packet_id: i32, packet: &mut Packet<packet::In>) {
         // Keep Alive
         if packet_id == 0x0 {
             let x = packet.read_be_i32();
@@ -209,7 +210,7 @@ impl Connection {
         debug!("Username: {}", username);
     }
 
-    fn enable_encryption(&mut self, packet: &mut Packet) {
+    fn enable_encryption(&mut self, packet: &mut Packet<packet::In>) {
 
         // Get all the data from the Encryption Request packet
         let server_id = packet.read_string();
@@ -358,18 +359,18 @@ impl Connection {
         port
     }
 
-    fn write_packet(&mut self, mut p: Packet) {
+    fn write_packet(&mut self, p: Packet<packet::Out>) {
         // Get the actual buffer
-        let buf = p.out_buf().unwrap();
+        let buf = p.buf();
 
         // Write out the packet length
         self.sock.write_varint(buf.len() as i32);
 
         // and the actual payload
-        self.sock.write(*buf);
+        self.sock.write(buf);
     }
 
-    fn read_packet(&mut self) -> (i32, Packet) {
+    fn read_packet(&mut self) -> (i32, Packet<packet::In>) {
         // Read the packet length
         let len = self.sock.read_varint();
 
