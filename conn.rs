@@ -55,8 +55,11 @@ impl Connection {
         };
 
         debug!("Successfully connected to server.");
-        let t = term::Terminal::new(io::stdout());
-        let t = t.expect("unable to get handle to terminal");
+
+        let t = match term::Terminal::new(io::stdout()) {
+            Ok(t) => t,
+            Err(e) => return Err(e)
+        };
 
         Ok(Connection {
             addr: addr,
@@ -82,11 +85,13 @@ impl Connection {
 
         // Get the JSON
         let json = ExtraJSON::new(json::from_str(packet.read_string()).unwrap());
+
         println!("Minecraft Server Status [{}:{}]", self.host, self.addr.port);
         println!("Version: {}", json["version"]["name"].string());
         println!("Protocol: {}", json["version"]["protocol"].as_int());
         println!("Description: {}", json["description"].string());
         println!("Players: ({}/{})", json["players"]["online"].as_int(), json["players"]["max"].as_int());
+
         let players = json["players"]["sample"].list();
         for player in players.iter() {
             println!("\t{} ({})", player["name"].string(), player["id"].string());
@@ -379,7 +384,7 @@ impl Connection {
 
         let mut p = Packet::new_in(buf);
 
-        // Get the packet
+        // Get the packet id
         let id = p.read_varint();
 
         (id, p)

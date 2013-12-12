@@ -1,3 +1,5 @@
+#[allow(dead_code)];
+
 extern mod extra;
 
 use extra::getopts::groups;
