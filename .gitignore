@@ -1,2 +1,4 @@
 *.swp
 mcchat
+.DS_Store
+*.dSYM
