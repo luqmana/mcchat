@@ -2,7 +2,7 @@ use extra::term;
 use extra::json;
 
 use std::task;
-use std::{comm, io};
+use std::io;
 use std::io::{io_error, Reader, Writer};
 use std::io::buffered::BufferedReader;
 use std::io::net::addrinfo;
@@ -347,8 +347,8 @@ impl Connection {
         debug!("Got - {}", out);
     }
 
-    fn read_messages(&self) -> comm::Port<~str> {
-        let (port, chan) = comm::stream();
+    fn read_messages(&self) -> Port<~str> {
+        let (port, chan) = stream();
 
         let mut rtask = task::task();
         rtask.sched_mode(task::SingleThreaded);
