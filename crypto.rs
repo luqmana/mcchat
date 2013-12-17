@@ -27,8 +27,7 @@ impl SHA1 {
 
     pub fn update(&mut self, buf: &[u8]) {
         unsafe {
-            let bufp = vec::raw::to_ptr(buf);
-            ll::EVP_DigestUpdate(self.ctx, bufp, buf.len() as size_t);
+            ll::EVP_DigestUpdate(self.ctx, buf.as_ptr(), buf.len() as size_t);
         }
     }
 
@@ -36,11 +35,8 @@ impl SHA1 {
         unsafe {
             let mut buf = vec::from_elem(ll::EVP_MAX_MD_SIZE as uint, 0u8);
             let len = 0;
-
-            let bufp = vec::raw::to_ptr(buf);
-            ll::EVP_DigestFinal(self.ctx, bufp, &len);
-
-            vec::raw::set_len(&mut buf, len as uint);
+            ll::EVP_DigestFinal(self.ctx, buf.as_ptr(), &len);
+            buf.set_len(len as uint);
 
             buf
         }
@@ -113,15 +109,13 @@ impl AES {
             let (blen, mut elen) = (0, 0);
             let mut emsg = vec::from_elem(data.len() + ll::AES_BLOCK_SIZE as uint, 0u8);
 
-            let outp = vec::raw::to_ptr(emsg);
-            let inp = vec::raw::to_ptr(data);
-            ll::EVP_EncryptUpdate(self.encrypt_ctx, outp, &blen, inp, data.len() as c_int);
+            ll::EVP_EncryptUpdate(self.encrypt_ctx, emsg.as_ptr(), &blen,
+                                  data.as_ptr(), data.len() as c_int);
 
             elen += blen;
+            ll::EVP_EncryptFinal_ex(self.encrypt_ctx, emsg.as_ptr().offset(elen as int), &blen);
 
-            ll::EVP_EncryptFinal_ex(self.encrypt_ctx, outp.offset(elen as int), &blen);
-
-            vec::raw::set_len(&mut emsg, (elen + blen) as uint);
+            emsg.set_len((elen + blen) as uint);
 
             Ok(emsg)
         }
@@ -132,15 +126,14 @@ impl AES {
             let (blen, mut dlen) = (0, 0);
             let mut dmesg = vec::from_elem(data.len(), 0u8);
 
-            let outp = vec::raw::to_ptr(dmesg);
-            let inp = vec::raw::to_ptr(data);
-            ll::EVP_DecryptUpdate(self.decrypt_ctx, outp, &blen, inp, data.len() as c_int);
+            ll::EVP_DecryptUpdate(self.decrypt_ctx, dmesg.as_ptr(), &blen,
+                                  data.as_ptr(), data.len() as c_int);
             dlen += blen;
 
-            ll::EVP_DecryptFinal_ex(self.decrypt_ctx, outp.offset(dlen as int), &blen);
+            ll::EVP_DecryptFinal_ex(self.decrypt_ctx, dmesg.as_ptr().offset(dlen as int), &blen);
             dlen += blen;
 
-            vec::raw::set_len(&mut dmesg, dlen as uint);
+            dmesg.set_len(dlen as uint);
 
             Ok(dmesg)
         }
@@ -208,9 +201,7 @@ struct RSAPublicKey {
 impl RSAPublicKey {
     pub fn from_bytes(b: &[u8]) -> Result<RSAPublicKey, ~str> {
         unsafe {
-            let p = vec::raw::to_ptr(b);
-
-            let k = ll::d2i_RSA_PUBKEY(ptr::null(), &p, b.len() as c_long);
+            let k = ll::d2i_RSA_PUBKEY(ptr::null(), &b.as_ptr(), b.len() as c_long);
             if k.is_null() {
                 return Err(~"unable to RSA public key");
             }
@@ -225,8 +216,7 @@ impl RSAPublicKey {
         unsafe {
             let l = ll::i2d_RSA_PUBKEY(self.k, ptr::null());
             let buf = vec::from_elem(l as uint, 0u8);
-            let p = vec::raw::to_ptr(buf);
-            ll::i2d_RSA_PUBKEY(self.k, &p);
+            ll::i2d_RSA_PUBKEY(self.k, &buf.as_ptr());
 
             buf
         }
@@ -238,8 +228,8 @@ impl RSAPublicKey {
 
             let buf = vec::from_elem(sz as uint, 0u8);
 
-            let elen = ll::RSA_public_encrypt(data.len() as c_int, &data[0], &buf[0],
-                                              self.k, ll::RSA_PKCS1_PADDING);
+            let elen = ll::RSA_public_encrypt(data.len() as c_int, data.as_ptr(),
+                                              buf.as_ptr(), self.k, ll::RSA_PKCS1_PADDING);
 
             if elen == -1 {
                 return Err(~"unable to encrypt data");
@@ -291,7 +281,7 @@ impl RSAPrivateKey {
                 return Err(~"unable to decrypt data");
             }
 
-            vec::raw::set_len(&mut buf, dlen as uint);
+            buf.set_len(dlen as uint);
 
             Ok(buf)
         }
