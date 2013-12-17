@@ -114,19 +114,23 @@ impl Connection {
         // for chat and keep alives.
         loop {
             // Got a message in the queue to send?
-            while msgs.peek() {
-                let msg = msgs.recv();
-                if msg.trim().is_empty() {
-                    continue;
-                } else if msg.len() > 100 {
-                    println!("Message too long.");
-                    continue;
-                }
+            'msg: loop {
+                match msgs.try_recv() {
+                    Some(msg) => {
+                        if msg.is_empty() {
+                            continue;
+                        } else if msg.len() > 100 {
+                            println!("Message too long.");
+                            continue;
+                        }
 
-                // Send the message!
-                let mut p = Packet::new_out(0x1);
-                p.write_string(msg);
-                self.write_packet(p);
+                        // Send the message!
+                        let mut p = Packet::new_out(0x1);
+                        p.write_string(msg);
+                        self.write_packet(p);
+                    }
+                    None => break 'msg
+                }
             }
 
             // Read in and handle a packet
@@ -348,7 +352,7 @@ impl Connection {
     }
 
     fn read_messages(&self) -> Port<~str> {
-        let (port, chan) = stream();
+        let (port, chan) = Chan::new();
 
         let mut rtask = task::task();
         rtask.sched_mode(task::SingleThreaded);
@@ -357,7 +361,8 @@ impl Connection {
 
             let mut stdin = BufferedReader::new(io::stdin());
             while !stdin.eof() {
-                chan.send(stdin.read_line().unwrap());
+                let line = stdin.read_line().unwrap();
+                chan.send(line.trim().to_owned());
             }
         }
 
