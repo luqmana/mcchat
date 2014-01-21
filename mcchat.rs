@@ -1,6 +1,7 @@
 #[allow(dead_code)];
 
 extern mod extra;
+#[cfg(native)] extern mod native;
 
 use extra::getopts::groups;
 use std::os;
@@ -19,6 +20,12 @@ static DEFAULT_PORT: u16          = 6660;
 fn usage(prog: &str, opts: &[groups::OptGroup]) {
     let message = format!("Usage: {} [OPTIONS]", prog);
     std::io::println(groups::usage(message, opts));
+}
+
+#[cfg(native)]
+#[start]
+fn start(argc: int, argv: **u8) -> int {
+    native::start(argc, argv, main)
 }
 
 fn main() {
