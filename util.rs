@@ -77,3 +77,24 @@ pub trait ReaderExtensions: Reader {
 }
 
 impl<T: Reader> ReaderExtensions for T {}
+
+pub enum Either<L, R> {
+    Left(L),
+    Right(R)
+}
+
+impl<L, R> Either<L, R> {
+    pub fn unwrap_left(self) -> L {
+        match self {
+            Left(x) => x,
+            Right(_) => fail!("tried to unwrap left but got right")
+        }
+    }
+
+    pub fn unwrap_right(self) -> R {
+        match self {
+            Left(_) => fail!("tried to unwrap right but got left"),
+            Right(x) => x
+        }
+    }
+}

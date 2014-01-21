@@ -18,7 +18,7 @@ static DEFAULT_PORT: u16          = 6660;
 /// Print out the usage message.
 fn usage(prog: &str, opts: &[groups::OptGroup]) {
     let message = format!("Usage: {} [OPTIONS]", prog);
-    println(groups::usage(message, opts));
+    std::io::println(groups::usage(message, opts));
 }
 
 fn main() {
@@ -44,7 +44,7 @@ fn main() {
     let status = matches.opt_present("status");
     let name = matches.opt_str("name").unwrap_or(DEFAULT_NAME.to_owned());
     let host = matches.opt_str("server").unwrap_or(DEFAULT_HOST.to_owned());
-    let port = matches.opt_str("port").map_default(DEFAULT_PORT, |x| from_str(x).expect("invalid port"));
+    let port = matches.opt_str("port").map_or(DEFAULT_PORT, |x| from_str(x).expect("invalid port"));
 
     // And now we're off to the races!
     match conn::Connection::new(name, host, port) {

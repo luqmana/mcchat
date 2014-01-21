@@ -1,9 +1,8 @@
 use std::libc::{c_int, c_long, c_ulong, c_void, size_t};
-use std::io::{Decorator, Reader, Stream, Writer};
-use std::io::mem::MemWriter;
+use std::io::{MemWriter, Reader, Stream, Writer};
 use std::{fmt, ptr, str, vec};
 
-struct SHA1 {
+pub struct SHA1 {
     priv ctx: *ll::EVP_MD_CTX
 }
 
@@ -54,8 +53,7 @@ impl SHA1 {
             format_args!(|a| fmt::write(&mut out as &mut Writer, a), "{:02x}", x);
         }
 
-        let out = out.inner();
-        str::from_utf8(out.slice_to(40)).to_owned()
+        str::from_utf8(out.unwrap().slice_to(40)).to_owned()
     }
 }
 
@@ -67,7 +65,7 @@ impl Drop for SHA1 {
     }
 }
 
-struct AES {
+pub struct AES {
     priv encrypt_ctx: *ll::EVP_CIPHER_CTX,
     priv decrypt_ctx: *ll::EVP_CIPHER_CTX,
 }
@@ -152,7 +150,7 @@ impl Drop for AES {
     }
 }
 
-struct AesStream<T> {
+pub struct AesStream<T> {
     priv stream: T,
     priv cipher: AES
 }
@@ -178,10 +176,6 @@ impl<T: Reader> Reader for AesStream<T> {
 
         Some(buf.len())
     }
-
-    fn eof(&mut self) -> bool {
-        self.stream.eof()
-    }
 }
 
 impl<T: Writer> Writer for AesStream<T> {
@@ -194,7 +188,7 @@ impl<T: Writer> Writer for AesStream<T> {
     }
 }
 
-struct RSAPublicKey {
+pub struct RSAPublicKey {
     priv k: *ll::RSA
 }
 

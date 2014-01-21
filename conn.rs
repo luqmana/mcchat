@@ -1,10 +1,9 @@
 use extra::term;
 use extra::json;
 
-use std::task;
+use std::comm;
 use std::io;
-use std::io::{io_error, Reader, Writer};
-use std::io::buffered::BufferedReader;
+use std::io::{BufferedReader, io_error, Reader, Writer};
 use std::io::net::addrinfo;
 use std::io::net::tcp::TcpStream;
 use std::io::net::ip::SocketAddr;
@@ -25,7 +24,7 @@ enum Sock {
     Encrypted(crypto::AesStream<TcpStream>)
 }
 
-struct Connection {
+pub struct Connection {
     addr: SocketAddr,
     host: ~str,
     sock: Option<Sock>,
@@ -116,7 +115,7 @@ impl Connection {
             // Got a message in the queue to send?
             'msg: loop {
                 match msgs.try_recv() {
-                    Some(msg) => {
+                    comm::Data(msg) => {
                         if msg.is_empty() {
                             continue;
                         } else if msg.len() > 100 {
@@ -129,7 +128,8 @@ impl Connection {
                         p.write_string(msg);
                         self.write_packet(p);
                     }
-                    None => break 'msg
+                    comm::Empty => break 'msg,
+                    comm::Disconnected => fail!("input stream disconnected")
                 }
             }
 
@@ -139,7 +139,7 @@ impl Connection {
         }
     }
 
-    fn handle_message(&mut self, packet_id: i32, packet: &mut Packet<packet::In>) {
+    fn handle_message(&mut self, packet_id: i32, packet: &mut packet::InPacket) {
         // Keep Alive
         if packet_id == 0x0 {
             let x = packet.read_be_i32();
@@ -219,7 +219,7 @@ impl Connection {
         debug!("Username: {}", username);
     }
 
-    fn enable_encryption(&mut self, packet: &mut Packet<packet::In>) {
+    fn enable_encryption(&mut self, packet: &mut packet::InPacket) {
 
         // Get all the data from the Encryption Request packet
         let server_id = packet.read_string();
@@ -294,7 +294,7 @@ impl Connection {
         ];
         let c = process::ProcessConfig {
             program: "/usr/bin/curl",
-            args: [~"-d", ~"@-", ~"-H", ~"Content-Type:application/json", url],
+            args: &[~"-d", ~"@-", ~"-H", ~"Content-Type:application/json", url],
             env: None,
             cwd: None,
             io: io
@@ -329,7 +329,7 @@ impl Connection {
         ];
         let c = process::ProcessConfig {
             program: "/usr/bin/curl",
-            args: [~"-d", ~"@-", ~"-H", ~"Content-Type:application/json", url],
+            args: &[~"-d", ~"@-", ~"-H", ~"Content-Type:application/json", url],
             env: None,
             cwd: None,
             io: io
@@ -354,14 +354,11 @@ impl Connection {
     fn read_messages(&self) -> Port<~str> {
         let (port, chan) = Chan::new();
 
-        let mut rtask = task::task();
-        rtask.sched_mode(task::SingleThreaded);
-        do rtask.spawn {
-            println("Type message and then [ENTER] to send:");
+        do spawn {
+            println!("Type message and then [ENTER] to send:");
 
             let mut stdin = BufferedReader::new(io::stdin());
-            while !stdin.eof() {
-                let line = stdin.read_line().unwrap();
+            for line in stdin.lines() {
                 chan.send(line.trim().to_owned());
             }
         }
@@ -369,7 +366,7 @@ impl Connection {
         port
     }
 
-    fn write_packet(&mut self, p: Packet<packet::Out>) {
+    fn write_packet(&mut self, p: packet::OutPacket) {
         // Get the actual buffer
         let buf = p.buf();
 
@@ -380,7 +377,7 @@ impl Connection {
         self.sock.write(buf);
     }
 
-    fn read_packet(&mut self) -> (i32, Packet<packet::In>) {
+    fn read_packet(&mut self) -> (i32, packet::InPacket) {
         // Read the packet length
         let len = self.sock.read_varint();
 
@@ -427,13 +424,6 @@ impl Reader for Sock {
         match *self {
             Plain(ref mut s) => s.read(buf),
             Encrypted(ref mut s) => s.read(buf)
-        }
-    }
-
-    fn eof(&mut self) -> bool {
-        match *self {
-            Plain(ref mut s) => s.eof(),
-            Encrypted(ref mut s) => s.eof()
         }
     }
 }

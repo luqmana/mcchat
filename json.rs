@@ -1,7 +1,7 @@
 use extra::json;
 use std::util;
 
-struct ExtraJSON(json::Json);
+pub struct ExtraJSON(json::Json);
 
 impl ExtraJSON {
     pub fn new(j: json::Json) -> ExtraJSON {
@@ -9,8 +9,8 @@ impl ExtraJSON {
     }
 
     pub fn string(&self) -> ~str {
-        match **self {
-            json::String(ref s) => s.clone(),
+        match *self {
+            ExtraJSON(json::String(ref s)) => s.clone(),
             _ => fail!("tried to get string from non-string")
         }
     }
@@ -20,8 +20,8 @@ impl ExtraJSON {
     }
 
     pub fn list_map<T>(&self, f: |ExtraJSON| -> T) -> ~[T] {
-        match **self {
-            json::List(ref l) => {
+        match *self {
+            ExtraJSON(json::List(ref l)) => {
                 l.map(|x| f(ExtraJSON(x.clone())))
             }
             _ => fail!("tried to get list from non-list")
@@ -29,8 +29,8 @@ impl ExtraJSON {
     }
 
     pub fn as_int(&self) -> int {
-        match **self {
-            json::Number(f) => f as int,
+        match *self {
+            ExtraJSON(json::Number(f)) => f as int,
             _ => fail!("tried to get int from non-number")
         }
     }
@@ -42,8 +42,8 @@ trait ExtraJSONIndex {
 
 impl<'a> ExtraJSONIndex for &'a str {
     fn index(&self, j: &ExtraJSON) -> ExtraJSON {
-        match **j {
-            json::Object(ref ij) => {
+        match *j {
+            ExtraJSON(json::Object(ref ij)) => {
                 match ij.find(&self.to_owned()) {
                     Some(jj) => ExtraJSON(jj.clone()),
                     None => fail!("no such key")
@@ -56,8 +56,8 @@ impl<'a> ExtraJSONIndex for &'a str {
 
 impl ExtraJSONIndex for int {
     fn index(&self, j: &ExtraJSON) -> ExtraJSON {
-        match **j {
-            json::List(ref l) => ExtraJSON(l[*self].clone()),
+        match *j {
+            ExtraJSON(json::List(ref l)) => ExtraJSON(l[*self].clone()),
             _ => fail!("tried to index non-list with int")
         }
     }

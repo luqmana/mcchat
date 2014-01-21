@@ -1,6 +1,6 @@
-use std::io::{Decorator, Reader, Writer};
-use std::io::mem::{MemReader, MemWriter};
+use std::io::{MemReader, MemWriter, Reader, Writer};
 
+use util::{Either, Left, Right};
 use util::WriterExtensions;
 
 /**
@@ -20,10 +20,13 @@ use util::WriterExtensions;
  * use all those convenient methods.
  */
 
-pub enum In {}
-pub enum Out {}
+enum In {}
+enum Out {}
 
-struct Packet<T> {
+pub type InPacket = Packet<In>;
+pub type OutPacket = Packet<Out>;
+
+pub struct Packet<T> {
     priv buf: Either<MemReader, MemWriter>
 }
 
@@ -46,7 +49,7 @@ impl Packet<Out> {
     }
 
     pub fn buf(self) -> ~[u8] {
-        self.buf.unwrap_right().inner()
+        self.buf.unwrap_right().unwrap()
     }
 }
 
@@ -54,13 +57,6 @@ impl Reader for Packet<In> {
     fn read(&mut self, buf: &mut [u8]) -> Option<uint> {
         match self.buf {
             Left(ref mut r) => r.read(buf),
-            Right(..) => unreachable!()
-        }
-    }
-
-    fn eof(&mut self) -> bool {
-        match self.buf {
-            Left(ref mut r) => r.eof(),
             Right(..) => unreachable!()
         }
     }
