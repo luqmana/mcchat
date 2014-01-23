@@ -53,7 +53,7 @@ impl SHA1 {
             format_args!(|a| fmt::write(&mut out as &mut Writer, a), "{:02x}", x);
         }
 
-        str::from_utf8(out.unwrap().slice_to(40)).to_owned()
+        str::from_utf8(out.unwrap().slice_to(40)).unwrap().to_owned()
     }
 }
 
@@ -254,7 +254,7 @@ impl ToStr for RSAPublicKey {
 
             ll::BIO_free_all(bio);
 
-            str::from_utf8_owned(buf)
+            str::from_utf8_owned(buf).unwrap()
         }
     }
 }
@@ -303,7 +303,7 @@ impl ToStr for RSAPrivateKey {
 
             ll::BIO_free_all(bio);
 
-            str::from_utf8_owned(buf)
+            str::from_utf8_owned(buf).unwrap()
         }
     }
 }

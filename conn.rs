@@ -315,7 +315,7 @@ impl Connection {
 
         // read response
         let out = p.io[1].get_mut_ref().read_to_end();
-        let out = str::from_utf8(out);
+        let out = str::from_utf8(out).unwrap();
         debug!("Got - {}", out);
 
         let json = ExtraJSON::new(json::from_str(out).unwrap());

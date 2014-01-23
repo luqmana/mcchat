@@ -72,7 +72,7 @@ pub trait ReaderExtensions: Reader {
         let len = self.read_varint();
         let buf = self.read_bytes(len as uint);
 
-        str::from_utf8_owned(buf)
+        str::from_utf8_owned(buf).unwrap()
     }
 }
 
