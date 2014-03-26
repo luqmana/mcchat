@@ -1,17 +1,17 @@
-use extra::term;
-use extra::json;
+use serialize::json;
 
 use std::comm;
 use std::io;
-use std::io::{BufferedReader, io_error, Reader, Writer};
+use std::io::{BufferedReader, LineBufferedWriter, Reader, Writer};
 use std::io::net::addrinfo;
 use std::io::net::tcp::TcpStream;
 use std::io::net::ip::SocketAddr;
 use std::io::process;
 use std::io::stdio::StdWriter;
-use std::rand;
-use std::rand::Rng;
+use rand;
+use rand::Rng;
 use std::str;
+use term;
 
 use crypto;
 use json::ExtraJSON;
@@ -29,7 +29,7 @@ pub struct Connection {
     host: ~str,
     sock: Option<Sock>,
     name: ~str,
-    term: term::Terminal<StdWriter>
+    term: term::Terminal<LineBufferedWriter<StdWriter>>
 }
 
 impl Connection {
@@ -37,20 +37,18 @@ impl Connection {
 
         // Resolve host
         let addr = match addrinfo::get_host_addresses(host) {
-            Some(a) => a[0],
-            None => return Err(~"unable to resolve host address")
+            Ok(a) => a[0],
+            Err(e) => return Err(e.to_str())
         };
         let addr = SocketAddr { ip: addr, port: port };
 
         debug!("Connecting to server at {}.", addr.to_str());
         let mut err = ~"";
-        let sock = io_error::cond.trap(|e| {
-            err = format!("{} - {}", e.kind.to_str(), e.desc);
-        }).inside(|| TcpStream::connect(addr));
+        let sock = TcpStream::connect(addr);
 
         let sock = match sock {
-            Some(s) => s,
-            None => return Err(err)
+            Ok(s) => s,
+            Err(e) => return Err(format!("{} - {}", e.kind.to_str(), e.desc))
         };
 
         debug!("Successfully connected to server.");
@@ -142,7 +140,7 @@ impl Connection {
     fn handle_message(&mut self, packet_id: i32, packet: &mut packet::InPacket) {
         // Keep Alive
         if packet_id == 0x0 {
-            let x = packet.read_be_i32();
+            let x = packet.read_be_i32().unwrap();
 
             // Need to respond
             let mut resp = Packet::new_out(0x0);
@@ -197,6 +195,7 @@ impl Connection {
         // Read the next packet and find out whether we need
         // to do authentication and encryption
         let (mut packet_id, mut packet) = self.read_packet();
+        debug!("Packet ID: {}", packet_id);
 
         if packet_id == 0x1 {
             // Encryption Request
@@ -208,6 +207,14 @@ impl Connection {
             let (pi, p) = self.read_packet();
             packet_id = pi;
             packet = p;
+        }
+
+        if packet_id == 0x0 {
+            // Disconnect
+
+            let reason = packet.read_string();
+            debug!("Reason: {}", reason);
+            fail!("Received disconnect.");
         }
 
         // Login Success
@@ -223,10 +230,10 @@ impl Connection {
 
         // Get all the data from the Encryption Request packet
         let server_id = packet.read_string();
-        let key_len = packet.read_be_i16();
-        let public_key = packet.read_bytes(key_len as uint);
-        let token_len = packet.read_be_i16();
-        let verify_token = packet.read_bytes(token_len as uint);
+        let key_len = packet.read_be_i16().unwrap();
+        let public_key = packet.read_exact(key_len as uint).unwrap();
+        let token_len = packet.read_be_i16().unwrap();
+        let verify_token = packet.read_exact(token_len as uint).unwrap();
 
         // Server's public key
         let pk = crypto::RSAPublicKey::from_bytes(public_key).unwrap();
@@ -288,21 +295,19 @@ impl Connection {
 
     fn authenticate(&mut self, hash: ~str) {
         let url = ~"https://authserver.mojang.com/authenticate";
-        let io = [
-            process::CreatePipe(true, false),
-            process::CreatePipe(false, true),
-        ];
         let c = process::ProcessConfig {
             program: "/usr/bin/curl",
             args: &[~"-d", ~"@-", ~"-H", ~"Content-Type:application/json", url],
             env: None,
             cwd: None,
-            io: io
+            stdin: process::CreatePipe(true, false),
+            stdout: process::CreatePipe(false, true),
+            .. process::ProcessConfig::new()
         };
-        let mut p = process::Process::new(c).unwrap();
+        let mut p = process::Process::configure(c).unwrap();
 
         // write json to stdin and close it
-        write!(p.io[0].get_mut_ref() as &mut Writer, r#"
+        write!(p.stdin.get_mut_ref() as &mut Writer, r#"
             \{
                 "agent": \{
                     "name": "Minecraft",
@@ -311,11 +316,11 @@ impl Connection {
                 "username": "{}",
                 "password": "{}"
             \}"#, "USER", "PASS"); // XXX: Don't hardcode these...
-        p.io[0] = None;
+        p.stdin = None;
 
         // read response
-        let out = p.io[1].get_mut_ref().read_to_end();
-        let out = str::from_utf8(out).unwrap();
+        let out = p.wait_with_output().output;
+        let out = str::from_utf8_owned(out).unwrap();
         debug!("Got - {}", out);
 
         let json = ExtraJSON::new(json::from_str(out).unwrap());
@@ -323,45 +328,43 @@ impl Connection {
         let profile = json["selectedProfile"]["id"].string();
 
         let url = ~"https://sessionserver.mojang.com/session/minecraft/join";
-        let io = [
-            process::CreatePipe(true, false),
-            process::CreatePipe(false, true),
-        ];
         let c = process::ProcessConfig {
             program: "/usr/bin/curl",
             args: &[~"-d", ~"@-", ~"-H", ~"Content-Type:application/json", url],
             env: None,
             cwd: None,
-            io: io
+            stdin: process::CreatePipe(true, false),
+            stdout: process::CreatePipe(false, true),
+            .. process::ProcessConfig::new()
         };
-        let mut p = process::Process::new(c).unwrap();
+        let mut p = process::Process::configure(c).unwrap();
 
         // write json to stdin and close it
-        write!(p.io[0].get_mut_ref() as &mut Writer, r#"
+        write!(p.stdin.get_mut_ref() as &mut Writer, r#"
             \{
                 "accessToken": "{}",
                 "selectedProfile": "{}",
                 "serverId": "{}"
             \}"#, token, profile, hash);
-        p.io[0] = None;
+        p.stdin = None;
 
         // read response
-        let out = p.io[1].get_mut_ref().read_to_end();
-        let out = str::from_utf8(out);
+        let out = p.wait_with_output().output;
+        let out = str::from_utf8_owned(out).unwrap();
         debug!("Got - {}", out);
     }
 
-    fn read_messages(&self) -> Port<~str> {
-        let (port, chan) = Chan::new();
+    fn read_messages(&self) -> Receiver<~str> {
+        let (chan, port) = comm::channel();
 
-        do spawn {
+        spawn(proc() {
             println!("Type message and then [ENTER] to send:");
 
             let mut stdin = BufferedReader::new(io::stdin());
             for line in stdin.lines() {
-                chan.send(line.trim().to_owned());
+                chan.send(line.unwrap().trim().to_owned());
             }
-        }
+        });
 
         port
     }
@@ -382,7 +385,7 @@ impl Connection {
         let len = self.sock.read_varint();
 
         // Now the payload
-        let buf = self.sock.read_bytes(len as uint);
+        let buf = self.sock.read_exact(len as uint).unwrap();
 
         let mut p = Packet::new_in(buf);
 
@@ -420,7 +423,7 @@ impl Connection {
 }
 
 impl Reader for Sock {
-    fn read(&mut self, buf: &mut [u8]) -> Option<uint> {
+    fn read(&mut self, buf: &mut [u8]) -> io::IoResult<uint> {
         match *self {
             Plain(ref mut s) => s.read(buf),
             Encrypted(ref mut s) => s.read(buf)
@@ -429,17 +432,42 @@ impl Reader for Sock {
 }
 
 impl Writer for Sock {
-    fn write(&mut self, buf: &[u8]) {
+    fn write(&mut self, buf: &[u8]) -> io::IoResult<()> {
         match *self {
             Plain(ref mut s) => s.write(buf),
             Encrypted(ref mut s) => s.write(buf)
         }
     }
 
-    fn flush(&mut self) {
+    fn flush(&mut self) -> io::IoResult<()> {
         match *self {
             Plain(ref mut s) => s.flush(),
             Encrypted(ref mut s) => s.flush()
+        }
+    }
+}
+
+impl Reader for Option<Sock> {
+    fn read(&mut self, buf: &mut [u8]) -> io::IoResult<uint> {
+        match *self {
+            Some(ref mut s) => s.read(buf),
+            None => Err(io::standard_error(io::OtherIoError))
+        }
+    }
+}
+
+impl Writer for Option<Sock> {
+    fn write(&mut self, buf: &[u8]) -> io::IoResult<()> {
+        match *self {
+            Some(ref mut s) => s.write(buf),
+            None => Err(io::standard_error(io::OtherIoError))
+        }
+    }
+
+    fn flush(&mut self) -> io::IoResult<()> {
+        match *self {
+            Some(ref mut s) => s.flush(),
+            None => Err(io::standard_error(io::OtherIoError))
         }
     }
 }

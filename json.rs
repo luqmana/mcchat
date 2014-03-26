@@ -1,5 +1,4 @@
-use extra::json;
-use std::util;
+use serialize::json;
 
 pub struct ExtraJSON(json::Json);
 
@@ -16,7 +15,7 @@ impl ExtraJSON {
     }
 
     pub fn list(&self) -> ~[ExtraJSON] {
-        self.list_map(util::id)
+        self.list_map(|x| x)
     }
 
     pub fn list_map<T>(&self, f: |ExtraJSON| -> T) -> ~[T] {

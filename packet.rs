@@ -1,3 +1,4 @@
+use std::io;
 use std::io::{MemReader, MemWriter, Reader, Writer};
 
 use util::{Either, Left, Right};
@@ -54,7 +55,7 @@ impl Packet<Out> {
 }
 
 impl Reader for Packet<In> {
-    fn read(&mut self, buf: &mut [u8]) -> Option<uint> {
+    fn read(&mut self, buf: &mut [u8]) -> io::IoResult<uint> {
         match self.buf {
             Left(ref mut r) => r.read(buf),
             Right(..) => unreachable!()
@@ -63,14 +64,14 @@ impl Reader for Packet<In> {
 }
 
 impl Writer for Packet<Out> {
-    fn write(&mut self, buf: &[u8]) {
+    fn write(&mut self, buf: &[u8]) -> io::IoResult<()> {
         match self.buf {
             Left(..) => unreachable!(),
             Right(ref mut w) => w.write(buf)
         }
     }
 
-    fn flush(&mut self) {
+    fn flush(&mut self) -> io::IoResult<()> {
         match self.buf {
             Left(..) => unreachable!(),
             Right(ref mut w) => w.flush()

@@ -10,7 +10,7 @@ impl crypto::SHA1 {
         let neg = (digest[0] & 0x80) == 0x80;
         if neg {
             let mut carry = true;
-            for x in digest.mut_iter().invert() {
+            for x in digest.mut_iter().rev() {
                 *x = !*x;
                 if carry {
                     carry = *x == 0xFF;
@@ -56,7 +56,7 @@ pub trait ReaderExtensions: Reader {
         let (mut total, mut shift, mut val) = (0, 0, 0x80);
 
         while (val & 0x80) != 0 {
-            val = self.read_u8() as i32;
+            val = self.read_u8().unwrap() as i32;
             total = total | ((val & 0x7F) << shift);
             shift = shift + 7;
         }
@@ -70,7 +70,7 @@ pub trait ReaderExtensions: Reader {
 
     fn read_string(&mut self) -> ~str {
         let len = self.read_varint();
-        let buf = self.read_bytes(len as uint);
+        let buf = self.read_exact(len as uint).unwrap();
 
         str::from_utf8_owned(buf).unwrap()
     }

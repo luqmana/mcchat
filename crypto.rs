@@ -1,6 +1,8 @@
 use std::libc::{c_int, c_long, c_ulong, c_void, size_t};
+use std::io;
 use std::io::{MemWriter, Reader, Stream, Writer};
-use std::{fmt, ptr, str, vec};
+use std::{fmt, ptr, str, slice};
+use std::fmt::Show;
 
 pub struct SHA1 {
     priv ctx: *ll::EVP_MD_CTX
@@ -32,7 +34,7 @@ impl SHA1 {
 
     pub fn final(self) -> ~[u8] {
         unsafe {
-            let mut buf = vec::from_elem(ll::EVP_MAX_MD_SIZE as uint, 0u8);
+            let mut buf = slice::from_elem(ll::EVP_MAX_MD_SIZE as uint, 0u8);
             let len = 0;
             ll::EVP_DigestFinal(self.ctx, buf.as_ptr(), &len);
             buf.set_len(len as uint);
@@ -105,7 +107,7 @@ impl AES {
     pub fn encrypt(&self, data: &[u8]) -> Result<~[u8], ~str> {
         unsafe {
             let (blen, mut elen) = (0, 0);
-            let mut emsg = vec::from_elem(data.len() + ll::AES_BLOCK_SIZE as uint, 0u8);
+            let mut emsg = slice::from_elem(data.len() + ll::AES_BLOCK_SIZE as uint, 0u8);
 
             ll::EVP_EncryptUpdate(self.encrypt_ctx, emsg.as_ptr(), &blen,
                                   data.as_ptr(), data.len() as c_int);
@@ -122,7 +124,7 @@ impl AES {
     pub fn decrypt(&self, data: &[u8]) -> Result<~[u8], ~str> {
         unsafe {
             let (blen, mut dlen) = (0, 0);
-            let mut dmesg = vec::from_elem(data.len(), 0u8);
+            let mut dmesg = slice::from_elem(data.len(), 0u8);
 
             ll::EVP_DecryptUpdate(self.decrypt_ctx, dmesg.as_ptr(), &blen,
                                   data.as_ptr(), data.len() as c_int);
@@ -165,26 +167,26 @@ impl<T: Stream> AesStream<T> {
 }
 
 impl<T: Reader> Reader for AesStream<T> {
-    fn read(&mut self, buf: &mut [u8]) -> Option<uint> {
-        let ein = self.stream.read_bytes(buf.len());
+    fn read(&mut self, buf: &mut [u8]) -> io::IoResult<uint> {
+        let ein = self.stream.read_exact(buf.len()).unwrap();
         let din = match self.cipher.decrypt(ein) {
             Ok(d) => d,
-            Err(_) => return None
+            Err(_) => return Err(io::standard_error(io::OtherIoError))
         };
         let l = din.len();
         buf.move_from(din, 0, l);
 
-        Some(buf.len())
+        Ok(buf.len())
     }
 }
 
 impl<T: Writer> Writer for AesStream<T> {
-    fn write(&mut self, buf: &[u8]) {
-        self.stream.write(self.cipher.encrypt(buf).unwrap());
+    fn write(&mut self, buf: &[u8]) -> io::IoResult<()> {
+        self.stream.write(self.cipher.encrypt(buf).unwrap())
     }
 
-    fn flush(&mut self) {
-        self.stream.flush();
+    fn flush(&mut self) -> io::IoResult<()> {
+        self.stream.flush()
     }
 }
 
@@ -209,7 +211,7 @@ impl RSAPublicKey {
     pub fn to_bytes(&self) -> ~[u8] {
         unsafe {
             let l = ll::i2d_RSA_PUBKEY(self.k, ptr::null());
-            let buf = vec::from_elem(l as uint, 0u8);
+            let buf = slice::from_elem(l as uint, 0u8);
             ll::i2d_RSA_PUBKEY(self.k, &buf.as_ptr());
 
             buf
@@ -220,7 +222,7 @@ impl RSAPublicKey {
         unsafe {
             let sz = ll::RSA_size(self.k);
 
-            let buf = vec::from_elem(sz as uint, 0u8);
+            let buf = slice::from_elem(sz as uint, 0u8);
 
             let elen = ll::RSA_public_encrypt(data.len() as c_int, data.as_ptr(),
                                               buf.as_ptr(), self.k, ll::RSA_PKCS1_PADDING);
@@ -242,31 +244,33 @@ impl Drop for RSAPublicKey {
     }
 }
 
-impl ToStr for RSAPublicKey {
-    fn to_str(&self) -> ~str {
+impl Show for RSAPublicKey {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         unsafe {
             let bio = ll::BIO_new(ll::BIO_s_mem());
             ll::PEM_write_bio_RSA_PUBKEY(bio, self.k);
 
             let len = ll::BIO_ctrl_pending(bio);
-            let buf = vec::from_elem(len as uint, 0u8);
+            let buf = slice::from_elem(len as uint, 0u8);
             ll::BIO_read(bio, &buf[0] as *u8 as *c_void, len as c_int);
 
             ll::BIO_free_all(bio);
 
-            str::from_utf8_owned(buf).unwrap()
+            str::from_utf8(buf).map(|x| write!(f.buf, "{:s}", x));
+
+            Ok(())
         }
     }
 }
 
 struct RSAPrivateKey {
-    priv k: *ll::RSA
+    k: *ll::RSA
 }
 
 impl RSAPrivateKey {
     pub fn decrypt(&self, data: &[u8]) -> Result<~[u8], ~str> {
         unsafe {
-            let mut buf = vec::from_elem(data.len(), 0u8);
+            let mut buf = slice::from_elem(data.len(), 0u8);
 
             let dlen = ll::RSA_private_decrypt(data.len() as c_int, &data[0], &buf[0],
                                                self.k, ll::RSA_PKCS1_PADDING);
@@ -290,20 +294,22 @@ impl Drop for RSAPrivateKey {
     }
 }
 
-impl ToStr for RSAPrivateKey {
-    fn to_str(&self) -> ~str {
+impl Show for RSAPrivateKey {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         unsafe {
             let bio = ll::BIO_new(ll::BIO_s_mem());
             ll::PEM_write_bio_RSAPrivateKey(bio, self.k, ptr::null(), ptr::null(),
                                             0, ptr::null(), ptr::null());
 
             let len = ll::BIO_ctrl_pending(bio);
-            let buf = vec::from_elem(len as uint, 0u8);
+            let buf = slice::from_elem(len as uint, 0u8);
             ll::BIO_read(bio, &buf[0] as *u8 as *c_void, len as c_int);
 
             ll::BIO_free_all(bio);
 
-            str::from_utf8_owned(buf).unwrap()
+            str::from_utf8(buf).map(|x| write!(f.buf, "{:s}", x));
+
+            Ok(())
         }
     }
 }
@@ -352,9 +358,10 @@ impl RSAKeyPair {
     }
 }
 
-impl ToStr for RSAKeyPair {
-    fn to_str(&self) -> ~str {
-        format!("{}\n{}", self.pub_key.to_str(), self.pri_key.to_str())
+impl Show for RSAKeyPair {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f.buf, "{}\n{}", self.pub_key.to_str(), self.pri_key.to_str());
+        Ok(())
     }
 }
 

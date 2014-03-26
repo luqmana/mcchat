@@ -1,9 +1,17 @@
 #[allow(dead_code)];
+#[feature(phase)];
 
-extern mod extra;
-#[cfg(native)] extern mod native;
+#[cfg(native)]
+extern crate native;
 
-use extra::getopts::groups;
+#[phase(syntax, link)]
+extern crate log;
+
+extern crate getopts;
+extern crate rand;
+extern crate serialize;
+extern crate term;
+
 use std::os;
 
 mod conn;
@@ -17,9 +25,9 @@ static DEFAULT_HOST: &'static str = "127.0.0.1";
 static DEFAULT_PORT: u16          = 6660;
 
 /// Print out the usage message.
-fn usage(prog: &str, opts: &[groups::OptGroup]) {
+fn usage(prog: &str, opts: &[getopts::OptGroup]) {
     let message = format!("Usage: {} [OPTIONS]", prog);
-    std::io::println(groups::usage(message, opts));
+    std::io::println(getopts::usage(message, opts));
 }
 
 #[cfg(native)]
@@ -31,13 +39,13 @@ fn start(argc: int, argv: **u8) -> int {
 fn main() {
     let args = os::args();
     let opts = [
-        groups::optflag("h", "help", "Display this message"),
-        groups::optopt("s", "server", "Minecraft server host", "HOST"),
-        groups::optopt("p", "port", "Minecraft server port", "PORT"),
-        groups::optopt("n", "name", "Username to use.", "NAME"),
-        groups::optflag("c", "status", "Get info about the server."),
+        getopts::optflag("h", "help", "Display this message"),
+        getopts::optopt("s", "server", "Minecraft server host", "HOST"),
+        getopts::optopt("p", "port", "Minecraft server port", "PORT"),
+        getopts::optopt("n", "name", "Username to use.", "NAME"),
+        getopts::optflag("c", "status", "Get info about the server."),
     ];
-    let matches = match groups::getopts(args.tail(), opts) {
+    let matches = match getopts::getopts(args.tail(), opts) {
         Ok(m) => m,
         Err(e) => fail!(e.to_err_msg())
     };
