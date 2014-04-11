@@ -1,11 +1,11 @@
-use std::libc::{c_int, c_long, c_ulong, c_void, size_t};
+use libc::{c_int, c_long, c_ulong, c_void, size_t};
 use std::io;
 use std::io::{MemWriter, Reader, Stream, Writer};
 use std::{fmt, ptr, str, slice};
 use std::fmt::Show;
 
 pub struct SHA1 {
-    priv ctx: *ll::EVP_MD_CTX
+    ctx: *ll::EVP_MD_CTX
 }
 
 impl SHA1 {
@@ -68,8 +68,8 @@ impl Drop for SHA1 {
 }
 
 pub struct AES {
-    priv encrypt_ctx: *ll::EVP_CIPHER_CTX,
-    priv decrypt_ctx: *ll::EVP_CIPHER_CTX,
+    encrypt_ctx: *ll::EVP_CIPHER_CTX,
+    decrypt_ctx: *ll::EVP_CIPHER_CTX,
 }
 
 impl AES {
@@ -153,8 +153,8 @@ impl Drop for AES {
 }
 
 pub struct AesStream<T> {
-    priv stream: T,
-    priv cipher: AES
+    stream: T,
+    cipher: AES
 }
 
 impl<T: Stream> AesStream<T> {
@@ -169,7 +169,7 @@ impl<T: Stream> AesStream<T> {
 impl<T: Reader> Reader for AesStream<T> {
     fn read(&mut self, buf: &mut [u8]) -> io::IoResult<uint> {
         let ein = self.stream.read_exact(buf.len()).unwrap();
-        let din = match self.cipher.decrypt(ein) {
+        let din = match self.cipher.decrypt(ein.as_slice()) {
             Ok(d) => d,
             Err(_) => return Err(io::standard_error(io::OtherIoError))
         };
@@ -191,7 +191,7 @@ impl<T: Writer> Writer for AesStream<T> {
 }
 
 pub struct RSAPublicKey {
-    priv k: *ll::RSA
+    k: *ll::RSA
 }
 
 impl RSAPublicKey {
@@ -366,7 +366,7 @@ impl Show for RSAKeyPair {
 }
 
 mod ll {
-    use std::libc::{c_int, c_long, c_uchar, c_uint, c_ulong, c_void, size_t};
+    use libc::{c_int, c_long, c_uchar, c_uint, c_ulong, c_void, size_t};
 
     // Opaque types, yay
     pub type EVP_CIPHER_CTX = c_void;

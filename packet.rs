@@ -28,11 +28,11 @@ pub type InPacket = Packet<In>;
 pub type OutPacket = Packet<Out>;
 
 pub struct Packet<T> {
-    priv buf: Either<MemReader, MemWriter>
+    buf: Either<MemReader, MemWriter>
 }
 
 impl Packet<In> {
-    pub fn new_in(buf: ~[u8]) -> Packet<In> {
+    pub fn new_in(buf: Vec<u8>) -> Packet<In> {
         Packet {
             buf: Left(MemReader::new(buf))
         }
@@ -49,7 +49,7 @@ impl Packet<Out> {
         p
     }
 
-    pub fn buf(self) -> ~[u8] {
+    pub fn buf(self) -> Vec<u8> {
         self.buf.unwrap_right().unwrap()
     }
 }

@@ -1,5 +1,5 @@
-#[allow(dead_code)];
-#[feature(phase)];
+#![allow(dead_code)]
+#![feature(phase)]
 
 #[cfg(native)]
 extern crate native;
@@ -8,6 +8,7 @@ extern crate native;
 extern crate log;
 
 extern crate getopts;
+extern crate libc;
 extern crate rand;
 extern crate serialize;
 extern crate term;

@@ -21,7 +21,7 @@ impl ExtraJSON {
     pub fn list_map<T>(&self, f: |ExtraJSON| -> T) -> ~[T] {
         match *self {
             ExtraJSON(json::List(ref l)) => {
-                l.map(|x| f(ExtraJSON(x.clone())))
+                l.iter().map(|x| f(ExtraJSON(x.clone()))).collect()
             }
             _ => fail!("tried to get list from non-list")
         }
@@ -56,7 +56,7 @@ impl<'a> ExtraJSONIndex for &'a str {
 impl ExtraJSONIndex for int {
     fn index(&self, j: &ExtraJSON) -> ExtraJSON {
         match *j {
-            ExtraJSON(json::List(ref l)) => ExtraJSON(l[*self].clone()),
+            ExtraJSON(json::List(ref l)) => ExtraJSON(l[*self as uint].clone()),
             _ => fail!("tried to index non-list with int")
         }
     }

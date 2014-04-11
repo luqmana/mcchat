@@ -43,7 +43,6 @@ impl Connection {
         let addr = SocketAddr { ip: addr, port: port };
 
         debug!("Connecting to server at {}.", addr.to_str());
-        let mut err = ~"";
         let sock = TcpStream::connect(addr);
 
         let sock = match sock {
@@ -236,7 +235,7 @@ impl Connection {
         let verify_token = packet.read_exact(token_len as uint).unwrap();
 
         // Server's public key
-        let pk = crypto::RSAPublicKey::from_bytes(public_key).unwrap();
+        let pk = crypto::RSAPublicKey::from_bytes(public_key.as_slice()).unwrap();
 
         // Generate random 16 byte key
         let mut key = [0u8, ..16];
@@ -246,13 +245,13 @@ impl Connection {
         let ekey = pk.encrypt(key).unwrap();
 
         // Encrypt verify token with server's public key
-        let etoken = pk.encrypt(verify_token).unwrap();
+        let etoken = pk.encrypt(verify_token.as_slice()).unwrap();
 
         // Generate the server id hash
         let mut sha1 = crypto::SHA1::new();
         sha1.update(server_id.as_bytes());
         sha1.update(key);
-        sha1.update(public_key);
+        sha1.update(public_key.as_slice());
         let hash = sha1.special_digest();
 
         debug!("Hash: {}", hash);
@@ -320,7 +319,7 @@ impl Connection {
 
         // read response
         let out = p.wait_with_output().output;
-        let out = str::from_utf8_owned(out).unwrap();
+        let out = str::from_utf8_owned(out.move_iter().collect()).unwrap();
         debug!("Got - {}", out);
 
         let json = ExtraJSON::new(json::from_str(out).unwrap());
@@ -350,7 +349,7 @@ impl Connection {
 
         // read response
         let out = p.wait_with_output().output;
-        let out = str::from_utf8_owned(out).unwrap();
+        let out = str::from_utf8_owned(out.move_iter().collect()).unwrap();
         debug!("Got - {}", out);
     }
 
@@ -377,7 +376,7 @@ impl Connection {
         self.sock.write_varint(buf.len() as i32);
 
         // and the actual payload
-        self.sock.write(buf);
+        self.sock.write(buf.as_slice());
     }
 
     fn read_packet(&mut self) -> (i32, packet::InPacket) {
